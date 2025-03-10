@@ -1,0 +1,10 @@
+{
+  "files": {
+    "main.js": "/widget.js",
+    "index.html": "/index.html",
+    "widget.js.map": "/widget.js.map"
+  },
+  "entrypoints": [
+    "widget.js"
+  ]
+}
