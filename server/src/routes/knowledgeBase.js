@@ -423,4 +423,48 @@ router.delete('/:itemId/agent/:agentId', authenticateToken, async (req, res) => 
   }
 });
 
+// Get processed content for a knowledge base item
+router.get('/content/:itemId/agent/:agentId', authenticateToken, async (req, res) => {
+  try {
+    const agent = await Agent.findOne({
+      _id: req.params.agentId,
+      user: req.user._id,
+    });
+
+    if (!agent) {
+      return res.status(404).json({ message: 'Agent not found' });
+    }
+
+    const item = agent.knowledgeBase.find(
+      (item) => item._id.toString() === req.params.itemId
+    );
+
+    if (!item) {
+      return res.status(404).json({ message: 'Knowledge base item not found' });
+    }
+
+    // Get vectors from Pinecone
+    const vectors = await vectorStore.getVectors({
+      agentId: agent._id.toString(),
+      userId: req.user._id.toString(),
+      type: item.type,
+      source: item.source,
+    });
+
+    // Return the processed content
+    res.json({
+      content: vectors.map(v => v.metadata.text),
+      metadata: {
+        type: item.type,
+        source: item.source,
+        addedAt: item.addedAt,
+        chunks: vectors.length
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching content:', error);
+    res.status(500).json({ message: 'Error fetching content', error: error.message });
+  }
+});
+
 module.exports = router; 

@@ -15,6 +15,12 @@ import {
   IconButton,
   Divider,
   Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Paper,
+  Chip,
 } from '@mui/material';
 import {
   Language as WebIcon,
@@ -22,6 +28,7 @@ import {
   Delete as DeleteIcon,
   CheckCircle as CheckIcon,
   Description as FileIcon,
+  Visibility as VisibilityIcon,
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import axios from 'axios';
@@ -36,6 +43,9 @@ function KnowledgeBase() {
   const [selectedAgent, setSelectedAgent] = useState('');
   const [agents, setAgents] = useState([]);
   const [error, setError] = useState('');
+  const [selectedContent, setSelectedContent] = useState(null);
+  const [contentDialogOpen, setContentDialogOpen] = useState(false);
+  const [loadingContent, setLoadingContent] = useState(false);
 
   useEffect(() => {
     fetchAgents();
@@ -172,6 +182,25 @@ function KnowledgeBase() {
     }
   };
 
+  const handleViewContent = async (itemId) => {
+    setLoadingContent(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(
+        `${process.env.REACT_APP_API_URL}/knowledge-base/content/${itemId}/agent/${selectedAgent}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      setSelectedContent(response.data);
+      setContentDialogOpen(true);
+    } catch (error) {
+      const errorMessage = error.response?.data?.message || 'Error fetching content';
+      toast.error(errorMessage);
+    }
+    setLoadingContent(false);
+  };
+
   return (
     <Box sx={{ p: 3, width: '100%' }}>
       <Grid container spacing={3}>
@@ -304,9 +333,24 @@ function KnowledgeBase() {
                   <React.Fragment key={item._id}>
                     <ListItem
                       secondaryAction={
-                        <IconButton edge="end" onClick={() => handleDelete(item._id)}>
-                          <DeleteIcon />
-                        </IconButton>
+                        <Box>
+                          <IconButton
+                            edge="end"
+                            aria-label="view"
+                            onClick={() => handleViewContent(item._id)}
+                            disabled={loadingContent}
+                            sx={{ mr: 1 }}
+                          >
+                            <VisibilityIcon />
+                          </IconButton>
+                          <IconButton
+                            edge="end"
+                            aria-label="delete"
+                            onClick={() => handleDelete(item._id)}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Box>
                       }
                     >
                       <ListItemIcon>
@@ -314,7 +358,7 @@ function KnowledgeBase() {
                       </ListItemIcon>
                       <ListItemText
                         primary={item.source}
-                        secondary={new Date(item.addedAt).toLocaleString()}
+                        secondary={`Added: ${new Date(item.addedAt).toLocaleString()}`}
                       />
                     </ListItem>
                     <Divider />
@@ -329,6 +373,53 @@ function KnowledgeBase() {
             </CardContent>
           </Card>
         </Grid>
+
+        <Dialog
+          open={contentDialogOpen}
+          onClose={() => setContentDialogOpen(false)}
+          maxWidth="md"
+          fullWidth
+        >
+          <DialogTitle>
+            Processed Content
+            {selectedContent && (
+              <Box sx={{ mt: 1 }}>
+                <Chip
+                  label={`Source: ${selectedContent.metadata.source}`}
+                  size="small"
+                  sx={{ mr: 1 }}
+                />
+                <Chip
+                  label={`Type: ${selectedContent.metadata.type}`}
+                  size="small"
+                  sx={{ mr: 1 }}
+                />
+                <Chip
+                  label={`Chunks: ${selectedContent.metadata.chunks}`}
+                  size="small"
+                />
+              </Box>
+            )}
+          </DialogTitle>
+          <DialogContent dividers>
+            {loadingContent ? (
+              <LinearProgress />
+            ) : (
+              selectedContent && (
+                <Box sx={{ mt: 2 }}>
+                  {selectedContent.content.map((chunk, index) => (
+                    <Paper key={index} sx={{ p: 2, mb: 2, backgroundColor: 'grey.50' }}>
+                      <Typography variant="body2">{chunk}</Typography>
+                    </Paper>
+                  ))}
+                </Box>
+              )
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setContentDialogOpen(false)}>Close</Button>
+          </DialogActions>
+        </Dialog>
       </Grid>
     </Box>
   );

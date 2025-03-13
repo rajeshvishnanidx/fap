@@ -189,6 +189,45 @@ class VectorStore {
       throw new Error(`Failed to soft delete vectors: ${error.message}`);
     }
   }
+
+  async getVectors(filter) {
+    try {
+      console.log('Getting vectors with filter:', filter);
+      
+      if (!filter || Object.keys(filter).length === 0) {
+        throw new Error('No filter provided for getting vectors');
+      }
+
+      // Create a dummy query vector (required by Pinecone)
+      const queryVector = Array(1536).fill(0.1);
+      
+      // Query with a high topK to get all matching vectors
+      const results = await this.index.query({
+        vector: queryVector,
+        filter: { ...filter, isDeleted: false },
+        topK: 10000,
+        includeMetadata: true
+      });
+
+      console.log(`Found ${results.matches.length} vectors`);
+      
+      // Sort by chunkIndex to maintain original order
+      const sortedMatches = results.matches.sort((a, b) => 
+        a.metadata.chunkIndex - b.metadata.chunkIndex
+      );
+
+      return sortedMatches.map(match => ({
+        text: match.metadata.text,
+        metadata: match.metadata
+      }));
+    } catch (error) {
+      console.error('Error getting vectors:', error);
+      if (error.response) {
+        console.error('Pinecone API error response:', error.response.data);
+      }
+      throw new Error(`Failed to get vectors: ${error.message}`);
+    }
+  }
 }
 
 // Create and export a singleton instance
