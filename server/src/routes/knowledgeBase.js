@@ -8,8 +8,10 @@ const path = require('path');
 const fs = require('fs').promises;
 const { authenticateToken } = require('../middleware/auth');
 const Agent = require('../models/Agent');
+const ScrapingProgress = require('../models/ScrapingProgress');
 const DocumentProcessor = require('../utils/documentProcessor');
 const vectorStore = require('../utils/vectorStore');
+const SitemapParser = require('../utils/sitemapParser');
 const router = express.Router();
 
 // Configure multer for file upload
@@ -500,5 +502,261 @@ router.get('/content/:itemId/agent/:agentId', authenticateToken, async (req, res
     res.status(500).json({ message: 'Error fetching content', error: error.message });
   }
 });
+
+// Initialize sitemap scraping
+router.post('/scrape-sitemap', authenticateToken, async (req, res) => {
+  try {
+    const { sitemapUrl, agentId } = req.body;
+
+    if (!sitemapUrl) {
+      return res.status(400).json({ message: 'Sitemap URL is required' });
+    }
+
+    // Validate URL
+    try {
+      new URL(sitemapUrl);
+    } catch (e) {
+      return res.status(400).json({ message: 'Invalid sitemap URL format' });
+    }
+
+    // Find agent
+    const agent = await Agent.findOne({
+      _id: agentId,
+      user: req.user._id,
+    });
+
+    if (!agent) {
+      return res.status(404).json({ message: 'Agent not found' });
+    }
+
+    // Extract URLs from sitemap
+    const urls = await SitemapParser.extractUrlsFromSitemap(sitemapUrl);
+    console.log(`Found ${urls.length} URLs in sitemap`);
+
+    // Create progress entries for each URL
+    const progressEntries = urls.map(url => ({
+      agentId: agent._id,
+      userId: req.user._id,
+      url: url.loc,
+      lastmod: url.lastmod,
+      priority: url.priority,
+      changefreq: url.changefreq,
+      status: 'pending'
+    }));
+
+    // Use insertMany with ordered: false to handle duplicates gracefully
+    await ScrapingProgress.insertMany(progressEntries, { ordered: false })
+      .catch(err => {
+        // Log duplicate key errors but don't throw
+        if (err.code !== 11000) throw err;
+        console.log('Some URLs were already in progress (skipped)');
+      });
+
+    res.json({
+      message: 'Sitemap processing initiated',
+      totalUrls: urls.length,
+    });
+
+    // Start processing URLs in the background
+    processPendingUrls(agent._id, req.user._id);
+  } catch (error) {
+    console.error('Sitemap processing error:', error);
+    res.status(500).json({ 
+      message: 'Error processing sitemap',
+      error: error.message
+    });
+  }
+});
+
+// Get scraping progress
+router.get('/scraping-progress/:agentId', authenticateToken, async (req, res) => {
+  try {
+    const progress = await ScrapingProgress.find({
+      agentId: req.params.agentId,
+      userId: req.user._id
+    }).select('-userId');
+
+    const stats = {
+      total: progress.length,
+      pending: progress.filter(p => p.status === 'pending').length,
+      processing: progress.filter(p => p.status === 'processing').length,
+      completed: progress.filter(p => p.status === 'completed').length,
+      failed: progress.filter(p => p.status === 'failed').length,
+      totalChunks: progress.reduce((sum, p) => sum + (p.chunks || 0), 0)
+    };
+
+    res.json({ progress, stats });
+  } catch (error) {
+    res.status(500).json({ 
+      message: 'Error fetching scraping progress',
+      error: error.message
+    });
+  }
+});
+
+// Retry failed URLs
+router.post('/retry-failed', authenticateToken, async (req, res) => {
+  try {
+    const { agentId } = req.body;
+
+    await ScrapingProgress.updateMany(
+      { 
+        agentId,
+        userId: req.user._id,
+        status: 'failed'
+      },
+      { 
+        $set: { 
+          status: 'pending',
+          error: null,
+          startedAt: null,
+          completedAt: null
+        }
+      }
+    );
+
+    // Start processing URLs in the background
+    processPendingUrls(agentId, req.user._id);
+
+    res.json({ message: 'Failed URLs queued for retry' });
+  } catch (error) {
+    res.status(500).json({ 
+      message: 'Error retrying failed URLs',
+      error: error.message
+    });
+  }
+});
+
+// Helper function to process pending URLs
+async function processPendingUrls(agentId, userId) {
+  const CONCURRENT_REQUESTS = 3; // Process 3 URLs at a time
+  
+  try {
+    while (true) {
+      // Get pending URLs
+      const pendingUrls = await ScrapingProgress.find({
+        agentId,
+        userId,
+        status: 'pending'
+      }).limit(CONCURRENT_REQUESTS);
+
+      if (pendingUrls.length === 0) {
+        console.log('No more pending URLs to process');
+        break;
+      }
+
+      // Process URLs concurrently
+      await Promise.all(pendingUrls.map(progress => processUrl(progress)));
+    }
+  } catch (error) {
+    console.error('Error in URL processing loop:', error);
+  }
+}
+
+// Helper function to process a single URL
+async function processUrl(progress) {
+  try {
+    // Update status to processing
+    progress.status = 'processing';
+    progress.startedAt = new Date();
+    await progress.save();
+
+    // Create custom HTTPS agent
+    const httpsAgent = new https.Agent({
+      rejectUnauthorized: false,
+      keepAlive: true,
+      timeout: 60000,
+    });
+
+    // Fetch website content
+    const response = await axios.get(progress.url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      httpsAgent,
+      timeout: 60000,
+      maxRedirects: 5,
+      validateStatus: function (status) {
+        return status >= 200 && status < 500;
+      },
+    });
+
+    const $ = cheerio.load(response.data);
+    $('script, style, meta, link').remove();
+
+    // Extract text content
+    const content = [];
+    $('body').find('*').each((_, element) => {
+      if (element.type === 'text' || $(element).is('p, h1, h2, h3, h4, h5, h6, li, td, th, div')) {
+        const text = $(element).text().trim();
+        if (text && text.length > 20) {
+          content.push(text);
+        }
+      }
+    });
+
+    const uniqueContent = [...new Set(content)];
+    const text = uniqueContent.join('\n\n');
+    
+    if (!text) {
+      throw new Error('No meaningful content found on the page');
+    }
+
+    const chunks = await DocumentProcessor.splitIntoChunks(text);
+    progress.chunks = chunks.length;
+
+    // Generate embeddings in batches
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+
+    const embeddings = [];
+    const BATCH_SIZE = 20;
+    
+    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+      const batchChunks = chunks.slice(i, i + BATCH_SIZE);
+      const response = await openai.embeddings.create({
+        model: 'text-embedding-ada-002',
+        input: batchChunks,
+      });
+      embeddings.push(...response.data.map(item => item.embedding));
+    }
+
+    // Store in vector database
+    const timestamp = new Date().toISOString();
+    await vectorStore.upsertVectors(embeddings, {
+      agentId: progress.agentId.toString(),
+      userId: progress.userId.toString(),
+      type: 'website',
+      source: progress.url,
+      timestamp,
+      texts: chunks,
+    });
+
+    // Update agent's knowledge base
+    await Agent.findByIdAndUpdate(progress.agentId, {
+      $push: {
+        knowledgeBase: {
+          type: 'website',
+          source: progress.url,
+          addedAt: timestamp,
+        }
+      }
+    });
+
+    // Update progress status
+    progress.status = 'completed';
+    progress.completedAt = new Date();
+    await progress.save();
+
+  } catch (error) {
+    console.error(`Error processing URL ${progress.url}:`, error);
+    progress.status = 'failed';
+    progress.error = error.message;
+    await progress.save();
+  }
+}
 
 module.exports = router; 

@@ -22,6 +22,15 @@ import {
   Paper,
   Chip,
   CircularProgress,
+  Tab,
+  Tabs,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TablePagination,
 } from '@mui/material';
 import {
   Language as WebIcon,
@@ -30,6 +39,10 @@ import {
   CheckCircle as CheckIcon,
   Description as FileIcon,
   Visibility as VisibilityIcon,
+  Refresh as RefreshIcon,
+  Map as MapIcon,
+  Error as ErrorIcon,
+  Schedule as PendingIcon,
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import axios from 'axios';
@@ -39,7 +52,7 @@ function KnowledgeBase() {
   const [scraping, setScraping] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [scrapingProgress, setScrapingProgress] = useState(0);
+  const [scrapingProgress, setScrapingProgress] = useState(null);
   const [knowledgeBaseItems, setKnowledgeBaseItems] = useState([]);
   const [selectedAgent, setSelectedAgent] = useState('');
   const [agents, setAgents] = useState([]);
@@ -50,11 +63,18 @@ function KnowledgeBase() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [sitemapUrl, setSitemapUrl] = useState('');
+  const [loadingProgress, setLoadingProgress] = useState(false);
+  const [progressStats, setProgressStats] = useState(null);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [activeTab, setActiveTab] = useState(0);
 
   useEffect(() => {
     fetchAgents();
     if (selectedAgent) {
       fetchKnowledgeBase();
+      fetchScrapingProgress();
     }
   }, [selectedAgent]);
 
@@ -87,6 +107,28 @@ function KnowledgeBase() {
     } catch (error) {
       setError('Error fetching knowledge base');
       toast.error('Error fetching knowledge base');
+    }
+  };
+
+  const fetchScrapingProgress = async () => {
+    if (!selectedAgent) return;
+    
+    try {
+      setLoadingProgress(true);
+      const token = localStorage.getItem('token');
+      const response = await axios.get(
+        `${process.env.REACT_APP_API_URL}/knowledge-base/scraping-progress/${selectedAgent}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      setScrapingProgress(response.data.progress);
+      setProgressStats(response.data.stats);
+    } catch (error) {
+      console.error('Error fetching progress:', error);
+      toast.error('Error fetching scraping progress');
+    } finally {
+      setLoadingProgress(false);
     }
   };
 
@@ -181,6 +223,176 @@ function KnowledgeBase() {
     setScrapingProgress(0);
   };
 
+  const handleSitemapScrape = async () => {
+    if (!sitemapUrl) {
+      toast.error('Please enter a sitemap URL');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.post(
+        `${process.env.REACT_APP_API_URL}/knowledge-base/scrape-sitemap`,
+        {
+          sitemapUrl,
+          agentId: selectedAgent,
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      toast.success(`Found ${response.data.totalUrls} URLs in sitemap. Processing started.`);
+      setSitemapUrl('');
+      fetchScrapingProgress();
+    } catch (error) {
+      console.error('Sitemap processing error:', error);
+      toast.error(error.response?.data?.message || 'Error processing sitemap');
+    }
+  };
+
+  const handleRetryFailed = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(
+        `${process.env.REACT_APP_API_URL}/knowledge-base/retry-failed`,
+        {
+          agentId: selectedAgent,
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      toast.success('Failed URLs queued for retry');
+      fetchScrapingProgress();
+    } catch (error) {
+      console.error('Retry error:', error);
+      toast.error('Error retrying failed URLs');
+    }
+  };
+
+  const getStatusIcon = (status) => {
+    switch (status) {
+      case 'completed':
+        return <CheckIcon color="success" />;
+      case 'failed':
+        return <ErrorIcon color="error" />;
+      case 'processing':
+        return <CircularProgress size={20} />;
+      default:
+        return <PendingIcon color="disabled" />;
+    }
+  };
+
+  const renderProgressTable = () => (
+    <Box sx={{ width: '100%', mt: 2 }}>
+      {progressStats && (
+        <Box sx={{ mb: 2 }}>
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6} md={2}>
+              <Paper sx={{ p: 2, textAlign: 'center' }}>
+                <Typography variant="h6">{progressStats.total}</Typography>
+                <Typography variant="body2">Total URLs</Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'grey.100' }}>
+                <Typography variant="h6">{progressStats.pending}</Typography>
+                <Typography variant="body2">Pending</Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'info.light' }}>
+                <Typography variant="h6">{progressStats.processing}</Typography>
+                <Typography variant="body2">Processing</Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'success.light' }}>
+                <Typography variant="h6">{progressStats.completed}</Typography>
+                <Typography variant="body2">Completed</Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'error.light' }}>
+                <Typography variant="h6">{progressStats.failed}</Typography>
+                <Typography variant="body2">Failed</Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'warning.light' }}>
+                <Typography variant="h6">{progressStats.totalChunks}</Typography>
+                <Typography variant="body2">Total Chunks</Typography>
+              </Paper>
+            </Grid>
+          </Grid>
+        </Box>
+      )}
+
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell>Status</TableCell>
+              <TableCell>URL</TableCell>
+              <TableCell>Chunks</TableCell>
+              <TableCell>Started</TableCell>
+              <TableCell>Completed</TableCell>
+              <TableCell>Error</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {scrapingProgress
+              ?.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+              .map((progress) => (
+                <TableRow key={progress._id}>
+                  <TableCell>{getStatusIcon(progress.status)}</TableCell>
+                  <TableCell>{progress.url}</TableCell>
+                  <TableCell>{progress.chunks || 0}</TableCell>
+                  <TableCell>
+                    {progress.startedAt
+                      ? new Date(progress.startedAt).toLocaleString()
+                      : '-'}
+                  </TableCell>
+                  <TableCell>
+                    {progress.completedAt
+                      ? new Date(progress.completedAt).toLocaleString()
+                      : '-'}
+                  </TableCell>
+                  <TableCell>{progress.error || '-'}</TableCell>
+                </TableRow>
+              ))}
+          </TableBody>
+        </Table>
+        <TablePagination
+          component="div"
+          count={scrapingProgress?.length || 0}
+          page={page}
+          onPageChange={(e, newPage) => setPage(newPage)}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={(e) => {
+            setRowsPerPage(parseInt(e.target.value, 10));
+            setPage(0);
+          }}
+        />
+      </TableContainer>
+
+      {progressStats?.failed > 0 && (
+        <Box sx={{ mt: 2, textAlign: 'right' }}>
+          <Button
+            variant="contained"
+            color="error"
+            startIcon={<RefreshIcon />}
+            onClick={handleRetryFailed}
+          >
+            Retry Failed URLs
+          </Button>
+        </Box>
+      )}
+    </Box>
+  );
+
   const handleDeleteClick = (item) => {
     setItemToDelete(item);
     setDeleteDialogOpen(true);
@@ -255,198 +467,246 @@ function KnowledgeBase() {
         </Grid>
 
         <Grid item xs={12}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Select Agent
-              </Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={12}>
-                  <TextField
-                    select
-                    fullWidth
-                    label="AI Agent"
-                    value={selectedAgent}
-                    onChange={(e) => setSelectedAgent(e.target.value)}
-                    SelectProps={{
-                      native: true,
-                    }}
-                  >
-                    <option value="">Select an agent</option>
-                    {agents.map((agent) => (
-                      <option key={agent._id} value={agent._id}>
-                        {agent.name}
-                      </option>
-                    ))}
-                  </TextField>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
+          <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
+            <Tab label="Single URL" />
+            <Tab label="Sitemap" />
+            <Tab label="Upload" />
+            <Tab label="Knowledge Base" />
+          </Tabs>
         </Grid>
 
-        <Grid item xs={12}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Website Scraping
-              </Typography>
-              <Grid container spacing={2} alignItems="center">
-                <Grid item xs={12} md={8}>
-                  <TextField
-                    fullWidth
-                    label="Website URL"
-                    value={websiteUrl}
-                    onChange={(e) => setWebsiteUrl(e.target.value)}
-                    placeholder="https://example.com"
-                    disabled={!selectedAgent || scraping}
-                  />
-                </Grid>
-                <Grid item xs={12} md={4}>
-                  <Button
-                    fullWidth
-                    variant="contained"
-                    onClick={handleWebsiteScrape}
-                    disabled={!selectedAgent || scraping || !websiteUrl}
-                    startIcon={<WebIcon />}
-                  >
-                    Start Scraping
-                  </Button>
-                </Grid>
-              </Grid>
-              {scraping && (
-                <Box sx={{ mt: 2 }}>
-                  <LinearProgress />
-                  <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
-                    Scraping in progress...
-                  </Typography>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Upload Files
-              </Typography>
-              <Button
-                variant="outlined"
-                component="label"
-                startIcon={<UploadIcon />}
-                fullWidth
-                disabled={!selectedAgent || uploading}
-              >
-                Upload Documents
-                <input
-                  type="file"
-                  hidden
-                  multiple
-                  onChange={handleFileUpload}
-                  accept=".pdf,.doc,.docx,.txt"
-                />
-              </Button>
-              {uploading && (
-                <Box sx={{ mt: 2 }}>
-                  <LinearProgress variant="determinate" value={uploadProgress} />
-                  <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
-                    Upload Progress: {Math.round(uploadProgress)}%
-                  </Typography>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Knowledge Base Items
-              </Typography>
-              <List>
-                {knowledgeBaseItems.map((item) => (
-                  <React.Fragment key={item._id}>
-                    <ListItem
-                      secondaryAction={
-                        <Box>
-                          <IconButton
-                            edge="end"
-                            aria-label="view"
-                            onClick={() => handleViewContent(item._id)}
-                            disabled={loadingContent}
-                            sx={{ mr: 1 }}
-                          >
-                            {loadingContent ? (
-                              <CircularProgress size={24} />
-                            ) : (
-                              <VisibilityIcon />
-                            )}
-                          </IconButton>
-                          <IconButton
-                            edge="end"
-                            aria-label="delete"
-                            onClick={() => handleDeleteClick(item)}
-                            disabled={isDeleting}
-                          >
-                            {isDeleting && itemToDelete?._id === item._id ? (
-                              <CircularProgress size={24} />
-                            ) : (
-                              <DeleteIcon />
-                            )}
-                          </IconButton>
-                        </Box>
-                      }
+        {activeTab === 0 && (
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Scrape Single URL
+                </Typography>
+                <Grid container spacing={2} alignItems="center">
+                  <Grid item xs={12} md={8}>
+                    <TextField
+                      fullWidth
+                      label="Website URL"
+                      value={websiteUrl}
+                      onChange={(e) => setWebsiteUrl(e.target.value)}
+                      placeholder="https://example.com"
+                      disabled={!selectedAgent || scraping}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      onClick={handleWebsiteScrape}
+                      disabled={!selectedAgent || scraping || !websiteUrl}
+                      startIcon={<WebIcon />}
                     >
-                      <ListItemIcon>
-                        {item.type === 'website' ? <WebIcon /> : <FileIcon />}
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={item.source}
-                        secondary={`Added: ${new Date(item.addedAt).toLocaleString()}`}
-                      />
-                    </ListItem>
-                    <Divider />
-                  </React.Fragment>
-                ))}
-                {knowledgeBaseItems.length === 0 && (
-                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-                    No items in knowledge base. Add content by scraping websites or uploading files.
-                  </Typography>
+                      Start Scraping
+                    </Button>
+                  </Grid>
+                </Grid>
+                {scraping && (
+                  <Box sx={{ mt: 2 }}>
+                    <LinearProgress />
+                    <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
+                      Scraping in progress...
+                    </Typography>
+                  </Box>
                 )}
-              </List>
-            </CardContent>
-          </Card>
-        </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+
+        {activeTab === 1 && (
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Scrape from Sitemap
+                </Typography>
+                <Grid container spacing={2} alignItems="center">
+                  <Grid item xs={12} md={8}>
+                    <TextField
+                      fullWidth
+                      label="Sitemap URL"
+                      value={sitemapUrl}
+                      onChange={(e) => setSitemapUrl(e.target.value)}
+                      placeholder="https://example.com/sitemap.xml"
+                      disabled={!selectedAgent}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      onClick={handleSitemapScrape}
+                      disabled={!selectedAgent || !sitemapUrl}
+                      startIcon={<MapIcon />}
+                    >
+                      Process Sitemap
+                    </Button>
+                  </Grid>
+                </Grid>
+
+                <Box sx={{ mt: 2 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                    <Typography variant="h6">Scraping Progress</Typography>
+                    <IconButton onClick={fetchScrapingProgress} disabled={loadingProgress}>
+                      <RefreshIcon />
+                    </IconButton>
+                  </Box>
+                  {loadingProgress ? (
+                    <LinearProgress />
+                  ) : (
+                    renderProgressTable()
+                  )}
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+
+        {activeTab === 2 && (
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Upload Files
+                </Typography>
+                <Button
+                  variant="outlined"
+                  component="label"
+                  startIcon={<UploadIcon />}
+                  fullWidth
+                  disabled={!selectedAgent || uploading}
+                >
+                  Upload Documents
+                  <input
+                    type="file"
+                    hidden
+                    multiple
+                    onChange={handleFileUpload}
+                    accept=".pdf,.doc,.docx,.txt"
+                  />
+                </Button>
+                {uploading && (
+                  <Box sx={{ mt: 2 }}>
+                    <LinearProgress variant="determinate" value={uploadProgress} />
+                    <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
+                      Upload Progress: {Math.round(uploadProgress)}%
+                    </Typography>
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+
+        {activeTab === 3 && (
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="h6">
+                    Knowledge Base Items ({knowledgeBaseItems.length})
+                  </Typography>
+                  <Box>
+                    <Chip 
+                      icon={<WebIcon />} 
+                      label={`Websites: ${knowledgeBaseItems.filter(item => item.type === 'website').length}`}
+                      sx={{ mr: 1 }}
+                    />
+                    <Chip 
+                      icon={<FileIcon />} 
+                      label={`Files: ${knowledgeBaseItems.filter(item => item.type === 'file').length}`}
+                    />
+                  </Box>
+                </Box>
+                <List>
+                  {knowledgeBaseItems.map((item) => (
+                    <React.Fragment key={item._id}>
+                      <ListItem
+                        secondaryAction={
+                          <Box>
+                            <IconButton
+                              edge="end"
+                              aria-label="view"
+                              onClick={() => handleViewContent(item._id)}
+                              disabled={loadingContent}
+                              sx={{ mr: 1 }}
+                            >
+                              {loadingContent ? (
+                                <CircularProgress size={24} />
+                              ) : (
+                                <VisibilityIcon />
+                              )}
+                            </IconButton>
+                            <IconButton
+                              edge="end"
+                              aria-label="delete"
+                              onClick={() => handleDeleteClick(item)}
+                              disabled={isDeleting}
+                            >
+                              {isDeleting && itemToDelete?._id === item._id ? (
+                                <CircularProgress size={24} />
+                              ) : (
+                                <DeleteIcon />
+                              )}
+                            </IconButton>
+                          </Box>
+                        }
+                      >
+                        <ListItemIcon>
+                          {item.type === 'website' ? <WebIcon /> : <FileIcon />}
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={item.source}
+                          secondary={`Added: ${new Date(item.addedAt).toLocaleString()}`}
+                        />
+                      </ListItem>
+                      <Divider />
+                    </React.Fragment>
+                  ))}
+                  {knowledgeBaseItems.length === 0 && (
+                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                      No items in knowledge base. Add content by scraping websites or uploading files.
+                    </Typography>
+                  )}
+                </List>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
 
         <Dialog
           open={contentDialogOpen}
           onClose={() => setContentDialogOpen(false)}
           maxWidth="md"
           fullWidth
+          PaperProps={{
+            sx: { minHeight: '70vh' }
+          }}
         >
           <DialogTitle>
-            Processed Content
-            {selectedContent && (
-              <Box sx={{ mt: 1 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="h6">
+                Content View
+              </Typography>
+              <Box>
                 <Chip
-                  label={`Source: ${selectedContent.metadata.source}`}
+                  icon={selectedContent?.metadata.type === 'website' ? <WebIcon /> : <FileIcon />}
+                  label={selectedContent?.metadata.source}
                   size="small"
                   sx={{ mr: 1 }}
                 />
                 <Chip
-                  label={`Type: ${selectedContent.metadata.type}`}
+                  label={`${selectedContent?.content.length} chunks`}
                   size="small"
-                  sx={{ mr: 1 }}
-                />
-                <Chip
-                  label={`Chunks: ${selectedContent.metadata.chunks}`}
-                  size="small"
+                  color="primary"
                 />
               </Box>
-            )}
+            </Box>
           </DialogTitle>
           <DialogContent dividers>
             {loadingContent ? (
@@ -457,8 +717,46 @@ function KnowledgeBase() {
               selectedContent && (
                 <Box sx={{ mt: 2 }}>
                   {selectedContent.content.map((chunk, index) => (
-                    <Paper key={index} sx={{ p: 2, mb: 2, backgroundColor: 'grey.50' }}>
-                      <Typography variant="body2">{chunk}</Typography>
+                    <Paper 
+                      key={index} 
+                      elevation={1}
+                      sx={{ 
+                        p: 3, 
+                        mb: 2, 
+                        backgroundColor: 'grey.50',
+                        '&:hover': {
+                          backgroundColor: 'grey.100',
+                        },
+                        position: 'relative'
+                      }}
+                    >
+                      <Typography 
+                        variant="caption" 
+                        sx={{ 
+                          position: 'absolute',
+                          top: 8,
+                          right: 8,
+                          bgcolor: 'primary.main',
+                          color: 'white',
+                          px: 1,
+                          py: 0.5,
+                          borderRadius: 1,
+                        }}
+                      >
+                        Chunk {index + 1}
+                      </Typography>
+                      <Typography 
+                        variant="body1" 
+                        sx={{ 
+                          whiteSpace: 'pre-wrap',
+                          fontFamily: 'system-ui',
+                          lineHeight: 1.8,
+                          textAlign: 'justify',
+                          mt: 2
+                        }}
+                      >
+                        {chunk}
+                      </Typography>
                     </Paper>
                   ))}
                 </Box>

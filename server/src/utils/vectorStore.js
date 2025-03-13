@@ -69,18 +69,49 @@ class VectorStore {
         throw new Error('Missing required metadata fields');
       }
 
+      const MAX_METADATA_SIZE = 35000; // Leave some buffer from the 40KB limit
+
       const records = vectors.map((vector, i) => {
         if (!vector || !Array.isArray(vector)) {
           throw new Error(`Invalid vector at index ${i}`);
+        }
+
+        // Get the chunk text
+        const text = metadata.texts[i];
+        
+        // Calculate approximate byte size of text
+        const textByteSize = new TextEncoder().encode(text).length;
+        
+        // Truncate text if it exceeds the limit
+        let truncatedText = text;
+        if (textByteSize > MAX_METADATA_SIZE) {
+          // Convert to UTF-8 bytes, truncate, and convert back to string
+          const encoder = new TextEncoder();
+          const decoder = new TextDecoder('utf-8');
+          const encoded = encoder.encode(text);
+          truncatedText = decoder.decode(encoded.slice(0, MAX_METADATA_SIZE));
+          
+          // Find last complete word
+          const lastSpace = truncatedText.lastIndexOf(' ');
+          if (lastSpace > 0) {
+            truncatedText = truncatedText.substring(0, lastSpace);
+          }
+          
+          truncatedText += ' [truncated]';
+          console.log(`Truncated text for chunk ${i} from ${textByteSize} to ${new TextEncoder().encode(truncatedText).length} bytes`);
         }
 
         return {
           id: `${metadata.agentId}-${metadata.type}-${metadata.timestamp}-${i}`,
           values: vector,
           metadata: {
-            ...metadata,
+            agentId: metadata.agentId,
+            userId: metadata.userId,
+            type: metadata.type,
+            source: metadata.source,
+            timestamp: metadata.timestamp,
             chunkIndex: i,
-            text: metadata.texts[i],
+            text: truncatedText,
             isDeleted: false,
           },
         };

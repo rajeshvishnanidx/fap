@@ -248,18 +248,20 @@ class DocumentProcessor {
     }
   }
 
-  static async splitIntoChunks(text, maxChunkSize = 6000) {
+  static async splitIntoChunks(text, maxChunkSize = 8000) {
     try {
       if (!text || typeof text !== 'string') {
         throw new Error('Invalid input: text must be a non-empty string');
       }
 
-      // Split text into sentences
-      const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
+      // Split text into paragraphs first
+      const paragraphs = text.split(/\n\s*\n/);
       
-      if (sentences.length === 0) {
-        // If no sentences found, split by newlines or spaces
-        sentences.push(...text.split(/[\n\s]+/));
+      // Then split paragraphs into sentences
+      const sentences = [];
+      for (const paragraph of paragraphs) {
+        const sentencesInParagraph = paragraph.match(/[^.!?]+[.!?]+/g) || [paragraph];
+        sentences.push(...sentencesInParagraph);
       }
 
       const chunks = [];
@@ -276,11 +278,19 @@ class DocumentProcessor {
             currentChunk = '';
           }
           
-          // Split long sentence into smaller parts
+          // Split long sentence into smaller parts while trying to maintain word boundaries
           let i = 0;
           while (i < trimmedSentence.length) {
-            chunks.push(trimmedSentence.slice(i, i + maxChunkSize).trim());
-            i += maxChunkSize;
+            let end = i + maxChunkSize;
+            if (end < trimmedSentence.length) {
+              // Try to find a word boundary
+              const nextSpace = trimmedSentence.indexOf(' ', end);
+              if (nextSpace !== -1 && nextSpace - end < 100) { // Look ahead up to 100 chars
+                end = nextSpace;
+              }
+            }
+            chunks.push(trimmedSentence.slice(i, end).trim());
+            i = end;
           }
           continue;
         }
@@ -290,7 +300,7 @@ class DocumentProcessor {
           chunks.push(currentChunk.trim());
           currentChunk = '';
         }
-        currentChunk += trimmedSentence + ' ';
+        currentChunk += (currentChunk ? ' ' : '') + trimmedSentence;
       }
 
       // Add the last chunk if it's not empty
@@ -303,6 +313,7 @@ class DocumentProcessor {
         chunks.push(text.trim());
       }
 
+      console.log(`Split text into ${chunks.length} chunks (max size: ${maxChunkSize})`);
       return chunks;
     } catch (error) {
       console.error('Chunk Processing Error:', error);
