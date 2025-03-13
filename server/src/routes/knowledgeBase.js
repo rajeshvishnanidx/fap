@@ -138,17 +138,45 @@ router.post('/scrape', authenticateToken, async (req, res) => {
 
     // Initialize OpenAI client
     const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY, // Use environment variable instead of user key
+      apiKey: process.env.OPENAI_API_KEY,
     });
 
-    // Generate embeddings for each chunk
+    // Generate embeddings for chunks in batches
     const embeddings = [];
-    for (const chunk of chunks) {
-      const response = await openai.embeddings.create({
-        model: 'text-embedding-ada-002',
-        input: chunk,
-      });
-      embeddings.push(response.data[0].embedding);
+    try {
+      console.log('Generating embeddings...');
+      const BATCH_SIZE = 20; // Process 20 chunks at a time
+      
+      for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+        const batchChunks = chunks.slice(i, i + BATCH_SIZE);
+        try {
+          const response = await openai.embeddings.create({
+            model: 'text-embedding-ada-002',
+            input: batchChunks,
+          });
+          embeddings.push(...response.data.map(item => item.embedding));
+          console.log(`Processed batch ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(chunks.length/BATCH_SIZE)}`);
+        } catch (error) {
+          if (error.code === 'insufficient_quota') {
+            throw new Error('OpenAI API quota exceeded. Please check your API key billing status or contact support.');
+          }
+          throw error;
+        }
+      }
+    } catch (error) {
+      console.error('Error generating embeddings:', error);
+      
+      // Handle specific error cases
+      if (error.message.includes('OpenAI API quota exceeded')) {
+        return res.status(402).json({
+          message: 'API quota exceeded. Please check your OpenAI API key billing status.',
+          error: error.message,
+          type: 'quota_exceeded',
+          suggestion: 'Visit https://platform.openai.com/account/billing to manage your API quota and billing.'
+        });
+      }
+      
+      throw error;
     }
 
     // Store in vector database
@@ -273,17 +301,23 @@ router.post('/process-file', authenticateToken, upload.single('file'), async (re
         apiKey: process.env.OPENAI_API_KEY,
       });
 
-      for (let i = 0; i < chunks.length; i++) {
-        console.log(`Generating embedding for chunk ${i + 1}/${chunks.length}`);
+      const BATCH_SIZE = 20; // Process 20 chunks at a time
+      for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+        const batchChunks = chunks.slice(i, i + BATCH_SIZE);
+        console.log(`Processing batch ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(chunks.length/BATCH_SIZE)}`);
+        
         const response = await openai.embeddings.create({
           model: 'text-embedding-ada-002',
-          input: chunks[i],
+          input: batchChunks,
         });
-        embeddings.push(response.data[0].embedding);
+        embeddings.push(...response.data.map(item => item.embedding));
       }
       console.log('Generated embeddings for all chunks');
     } catch (error) {
       console.error('Error generating embeddings:', error);
+      if (error.code === 'insufficient_quota') {
+        throw new Error('OpenAI API quota exceeded. Please check your API key billing status or contact support.');
+      }
       throw new Error(`Embedding generation failed: ${error.message}`);
     }
 

@@ -158,7 +158,21 @@ function KnowledgeBase() {
       fetchKnowledgeBase(); // Refresh the knowledge base list
       setWebsiteUrl(''); // Clear the input
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Error scraping website';
+      console.error('Scraping error:', error);
+      let errorMessage = error.response?.data?.message || 'Error scraping website';
+      
+      // Handle quota exceeded error
+      if (error.response?.data?.type === 'quota_exceeded') {
+        errorMessage = (
+          <div>
+            <p>{error.response.data.message}</p>
+            <p style={{ marginTop: '8px', fontSize: '0.9em' }}>
+              {error.response.data.suggestion}
+            </p>
+          </div>
+        );
+      }
+      
       setError(errorMessage);
       toast.error(errorMessage);
     }
