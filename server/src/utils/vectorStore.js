@@ -144,30 +144,31 @@ class VectorStore {
         throw new Error('No filter provided for deletion');
       }
 
+      // Query existing vectors
       const queryVector = Array(1536).fill(0.1);
-      
       const results = await this.index.query({
         vector: queryVector,
+        filter: filter,  // Use the provided filter directly
         topK: 10000,
+        includeValues: true,  // Important: get the actual vector values
         includeMetadata: true
       });
 
-      const matchingVectors = results.matches.filter(match => 
-        Object.entries(filter).every(([key, value]) => match.metadata[key] === value)
-      );
+      const matchingVectors = results.matches;
 
       if (matchingVectors.length > 0) {
         console.log(`Found ${matchingVectors.length} matching vectors to soft delete`);
         
         const updates = matchingVectors.map(match => ({
           id: match.id,
-          values: match.values,
+          values: match.values, // Use the original vector values
           metadata: {
             ...match.metadata,
             isDeleted: true
           }
         }));
 
+        // Batch updates in chunks of 100
         const batchSize = 100;
         for (let i = 0; i < updates.length; i += batchSize) {
           const batch = updates.slice(i, i + batchSize);

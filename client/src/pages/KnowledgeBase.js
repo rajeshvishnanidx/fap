@@ -21,6 +21,7 @@ import {
   DialogActions,
   Paper,
   Chip,
+  CircularProgress,
 } from '@mui/material';
 import {
   Language as WebIcon,
@@ -46,6 +47,9 @@ function KnowledgeBase() {
   const [selectedContent, setSelectedContent] = useState(null);
   const [contentDialogOpen, setContentDialogOpen] = useState(false);
   const [loadingContent, setLoadingContent] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     fetchAgents();
@@ -163,11 +167,19 @@ function KnowledgeBase() {
     setScrapingProgress(0);
   };
 
-  const handleDelete = async (itemId) => {
+  const handleDeleteClick = (item) => {
+    setItemToDelete(item);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!itemToDelete) return;
+
+    setIsDeleting(true);
     try {
       const token = localStorage.getItem('token');
       await axios.delete(
-        `${process.env.REACT_APP_API_URL}/knowledge-base/${itemId}/agent/${selectedAgent}`,
+        `${process.env.REACT_APP_API_URL}/knowledge-base/${itemToDelete._id}/agent/${selectedAgent}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -175,15 +187,20 @@ function KnowledgeBase() {
 
       toast.success('Item removed from knowledge base');
       fetchKnowledgeBase(); // Refresh the list
+      setDeleteDialogOpen(false);
+      setItemToDelete(null);
     } catch (error) {
+      console.error('Delete error:', error);
       const errorMessage = error.response?.data?.message || 'Error deleting item';
       setError(errorMessage);
       toast.error(errorMessage);
     }
+    setIsDeleting(false);
   };
 
   const handleViewContent = async (itemId) => {
     setLoadingContent(true);
+    setError('');
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(
@@ -192,11 +209,18 @@ function KnowledgeBase() {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
+      
+      if (!response.data || !response.data.content) {
+        throw new Error('No content available');
+      }
+      
       setSelectedContent(response.data);
       setContentDialogOpen(true);
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Error fetching content';
+      console.error('View content error:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Error fetching content';
       toast.error(errorMessage);
+      setError(errorMessage);
     }
     setLoadingContent(false);
   };
@@ -341,14 +365,23 @@ function KnowledgeBase() {
                             disabled={loadingContent}
                             sx={{ mr: 1 }}
                           >
-                            <VisibilityIcon />
+                            {loadingContent ? (
+                              <CircularProgress size={24} />
+                            ) : (
+                              <VisibilityIcon />
+                            )}
                           </IconButton>
                           <IconButton
                             edge="end"
                             aria-label="delete"
-                            onClick={() => handleDelete(item._id)}
+                            onClick={() => handleDeleteClick(item)}
+                            disabled={isDeleting}
                           >
-                            <DeleteIcon />
+                            {isDeleting && itemToDelete?._id === item._id ? (
+                              <CircularProgress size={24} />
+                            ) : (
+                              <DeleteIcon />
+                            )}
                           </IconButton>
                         </Box>
                       }
@@ -403,7 +436,9 @@ function KnowledgeBase() {
           </DialogTitle>
           <DialogContent dividers>
             {loadingContent ? (
-              <LinearProgress />
+              <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                <CircularProgress />
+              </Box>
             ) : (
               selectedContent && (
                 <Box sx={{ mt: 2 }}>
@@ -418,6 +453,38 @@ function KnowledgeBase() {
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setContentDialogOpen(false)}>Close</Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog
+          open={deleteDialogOpen}
+          onClose={() => !isDeleting && setDeleteDialogOpen(false)}
+        >
+          <DialogTitle>Confirm Delete</DialogTitle>
+          <DialogContent>
+            <Typography>
+              Are you sure you want to delete this item from the knowledge base?
+              This action cannot be undone.
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Source: {itemToDelete?.source}
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button 
+              onClick={() => setDeleteDialogOpen(false)} 
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleDeleteConfirm} 
+              color="error" 
+              disabled={isDeleting}
+              startIcon={isDeleting ? <CircularProgress size={20} /> : null}
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </Button>
           </DialogActions>
         </Dialog>
       </Grid>
