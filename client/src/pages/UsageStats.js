@@ -11,6 +11,10 @@ import {
   Tabs,
   Tab,
   Divider,
+  CircularProgress,
+  Alert,
+  InputLabel,
+  Select,
 } from '@mui/material';
 import {
   LineChart,
@@ -35,6 +39,8 @@ function UsageStats() {
   const [selectedAgent, setSelectedAgent] = useState('all');
   const [currentTab, setCurrentTab] = useState(0);
   const [agentStats, setAgentStats] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -68,15 +74,59 @@ function UsageStats() {
 
   const fetchAgents = async () => {
     try {
+      setLoading(true);
       const token = localStorage.getItem('token');
-      const response = await axios.get(
-        `${process.env.REACT_APP_API_URL}/agents`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setAgents(response.data);
-    } catch (error) {
-      console.error('Error fetching agents:', error);
-      toast.error('Failed to fetch agents');
+      if (!token) {
+        console.error('No authentication token found');
+        setError('Authentication token missing. Please log in again.');
+        setLoading(false);
+        return;
+      }
+
+      const response = await axios.get('http://localhost:5000/api/agents?fields=name,_id', {
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        timeout: 10000,
+        validateStatus: function (status) {
+          return (status >= 200 && status < 300) || status === 404;
+        }
+      });
+
+      if (response.status === 200) {
+        const agentsList = response.data;
+        console.log(`Fetched ${agentsList.length} real agents for usage stats`);
+        
+        if (agentsList.length > 0) {
+          setAgents(agentsList);
+          
+          if (!selectedAgent && agentsList.length > 0) {
+            setSelectedAgent(agentsList[0]._id);
+            fetchUsageStats(agentsList[0]._id);
+          } else if (selectedAgent) {
+            fetchUsageStats(selectedAgent);
+          }
+        } else {
+          setError('No agents found. Please create an agent first.');
+          setLoading(false);
+        }
+      } else if (response.status === 404) {
+        setError('No agents found. Please create an agent first.');
+        setLoading(false);
+      }
+    } catch (err) {
+      console.error('Error fetching agents:', err);
+      
+      // Instead of using mock agents, show helpful error message
+      if (err.response && (err.response.status === 401 || err.response.status === 403)) {
+        setError('Authentication failed. Please log in again.');
+      } else if (err.code === 'ECONNABORTED') {
+        setError('Request timed out. Server may be unavailable.');
+      } else {
+        setError(`Failed to fetch agents: ${err.message}`);
+      }
+      
+      setLoading(false);
     }
   };
 
@@ -95,7 +145,16 @@ function UsageStats() {
   };
 
   const formatDate = (date) => {
-    return new Date(date).toLocaleDateString();
+    if (!date) return 'Unknown';
+    
+    try {
+      const dateObj = new Date(date);
+      if (isNaN(dateObj.getTime())) return 'Invalid date';
+      return dateObj.toLocaleDateString();
+    } catch (error) {
+      console.error('Error formatting date:', error, date);
+      return 'Invalid date';
+    }
   };
 
   const handleAgentChange = (event) => {
@@ -132,21 +191,38 @@ function UsageStats() {
         Usage Statistics
       </Typography>
 
-      <Box sx={{ mb: 3 }}>
-        <TextField
-          select
-          label="Select Agent"
-          value={selectedAgent}
-          onChange={handleAgentChange}
-          sx={{ minWidth: 200 }}
-        >
-          <MenuItem value="all">All Agents</MenuItem>
-          {agents.map((agent) => (
-            <MenuItem key={agent._id} value={agent._id}>
-              {agent.name}
-            </MenuItem>
-          ))}
-        </TextField>
+      <Box sx={{ bgcolor: 'background.paper', borderRadius: 1, p: 2, mb: 3 }}>
+        <Typography variant="h6" gutterBottom>Agent Usage Statistics</Typography>
+        {loading ? (
+          <Box sx={{ textAlign: 'center', p: 3 }}>
+            <CircularProgress size={30} />
+          </Box>
+        ) : (
+          <>
+            {error && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {error}
+              </Alert>
+            )}
+            
+            <Box sx={{ mb: 2 }}>
+              <InputLabel id="agent-stats-label">Select Agent</InputLabel>
+              <Select
+                labelId="agent-stats-label"
+                value={selectedAgent}
+                onChange={(e) => setSelectedAgent(e.target.value)}
+                fullWidth
+              >
+                <MenuItem value="all">All Agents</MenuItem>
+                {Array.isArray(agents) && agents.map((agent) => (
+                  <MenuItem key={agent._id} value={agent._id}>
+                    {agent.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </Box>
+          </>
+        )}
       </Box>
 
       <Grid container spacing={3}>

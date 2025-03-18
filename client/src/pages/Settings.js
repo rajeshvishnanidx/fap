@@ -30,6 +30,8 @@ function Settings() {
   const [showApiKey, setShowApiKey] = React.useState(false);
   const [error, setError] = React.useState('');
   const [loading, setLoading] = React.useState(false);
+  const [savingOpenAI, setSavingOpenAI] = React.useState(false);
+  const [openAIKeyStatus, setOpenAIKeyStatus] = React.useState(null);
 
   React.useEffect(() => {
     fetchUserData();
@@ -66,16 +68,49 @@ function Settings() {
 
   const handleSaveOpenAI = async () => {
     try {
+      setSavingOpenAI(true);
+      setOpenAIKeyStatus(null);
+      setError('');
+      
+      // Validate the key format
+      if (!settings.openaiApiKey.startsWith('sk-')) {
+        setError('Invalid OpenAI API key format. Key should start with "sk-"');
+        return;
+      }
+      
       const token = localStorage.getItem('token');
-      await axios.put(
+      const response = await axios.put(
         `${process.env.REACT_APP_API_URL}/auth/openai-key`,
         { openaiApiKey: settings.openaiApiKey },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
+      setOpenAIKeyStatus({ success: true, message: 'OpenAI API key updated successfully' });
       toast.success('OpenAI API key updated successfully');
+      
+      // Check if the key is working
+      try {
+        await axios.get(
+          `${process.env.REACT_APP_API_URL}/auth/check-openai-key`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      } catch (checkError) {
+        console.error('Error checking OpenAI API key:', checkError);
+        setOpenAIKeyStatus({ 
+          success: true, 
+          warning: true, 
+          message: 'Key saved but there may be issues - please test it in chat' 
+        });
+      }
     } catch (error) {
+      console.error('Error updating OpenAI API key:', error);
+      setOpenAIKeyStatus({ 
+        success: false, 
+        message: error.response?.data?.message || 'Error updating OpenAI API key' 
+      });
       toast.error('Error updating OpenAI API key');
+    } finally {
+      setSavingOpenAI(false);
     }
   };
 
@@ -191,6 +226,10 @@ function Settings() {
                       value={settings.openaiApiKey}
                       onChange={handleChange}
                       type="password"
+                      error={!!error}
+                      helperText={error}
+                      placeholder="sk-..."
+                      disabled={savingOpenAI}
                     />
                   </Grid>
                   <Grid item xs={12} sm={4}>
@@ -199,10 +238,21 @@ function Settings() {
                       variant="contained"
                       onClick={handleSaveOpenAI}
                       startIcon={<KeyIcon />}
+                      disabled={!settings.openaiApiKey || savingOpenAI}
                     >
-                      Save Key
+                      {savingOpenAI ? 'Saving...' : 'Save Key'}
                     </Button>
                   </Grid>
+                  {openAIKeyStatus && (
+                    <Grid item xs={12}>
+                      <Alert 
+                        severity={openAIKeyStatus.success ? (openAIKeyStatus.warning ? 'warning' : 'success') : 'error'}
+                        sx={{ mt: 1 }}
+                      >
+                        {openAIKeyStatus.message}
+                      </Alert>
+                    </Grid>
+                  )}
                 </Grid>
               </Box>
 

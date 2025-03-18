@@ -1,9 +1,18 @@
-import React from 'react';
-import { Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
+import React, { useState, useEffect } from 'react';
 import {
-  Box,
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+  Link,
+  useNavigate,
+  useLocation
+} from 'react-router-dom';
+import {
   CssBaseline,
+  ThemeProvider,
+  createTheme,
+  Box,
   Drawer,
   AppBar,
   Toolbar,
@@ -12,40 +21,41 @@ import {
   Divider,
   IconButton,
   ListItem,
-  ListItemButton,
   ListItemIcon,
   ListItemText,
+  ListItemButton,
   Avatar,
   Menu,
   MenuItem,
+  styled,
   useMediaQuery,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
-  Dashboard as DashboardIcon,
-  SmartToy as AgentsIcon,
-  Chat as ChatIcon,
-  Storage as KnowledgeIcon,
-  QueryStats as StatsIcon,
-  Code as IntegrationIcon,
-  Settings as SettingsIcon,
   ChevronLeft as ChevronLeftIcon,
-  Brightness4 as DarkModeIcon,
-  Brightness7 as LightModeIcon,
+  Dashboard as DashboardIcon,
+  SmartToy as AgentIcon,
+  Book as KnowledgeIcon,
+  Chat as ChatIcon,
+  Settings as SettingsIcon,
+  Assessment as StatsIcon,
+  Code as IntegrationIcon,
+  DarkMode as DarkModeIcon,
+  LightMode as LightModeIcon,
 } from '@mui/icons-material';
-import { styled } from '@mui/material/styles';
 
-// Import your page components
-import Login from './pages/Login';
-import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Agents from './pages/Agents';
 import AgentBuilder from './pages/AgentBuilder';
-import Chat from './pages/Chat';
 import KnowledgeBase from './pages/KnowledgeBase';
+import FaqManager from './pages/FaqManager';
 import UsageStats from './pages/UsageStats';
 import Integration from './pages/Integration';
 import Settings from './pages/Settings';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 const drawerWidth = 280;
 
@@ -149,9 +159,9 @@ function AppContent() {
 
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
-    { text: 'AI Agents', icon: <AgentsIcon />, path: '/agents' },
-    { text: 'Chat', icon: <ChatIcon />, path: '/chat' },
+    { text: 'AI Agents', icon: <AgentIcon />, path: '/agents' },
     { text: 'Knowledge Base', icon: <KnowledgeIcon />, path: '/knowledge-base' },
+    { text: 'FAQ Manager', icon: <ChatIcon />, path: '/faq-manager' },
     { text: 'Usage Stats', icon: <StatsIcon />, path: '/usage-stats' },
     { text: 'Integration', icon: <IntegrationIcon />, path: '/integration' },
     { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
@@ -278,8 +288,10 @@ function AppContent() {
             <Route path="/agents" element={<Agents />} />
             <Route path="/agent-builder" element={<AgentBuilder />} />
             <Route path="/agent-builder/:agentId" element={<AgentBuilder />} />
-            <Route path="/chat" element={<Chat />} />
             <Route path="/knowledge-base" element={<KnowledgeBase />} />
+            <Route path="/faqs-manager" element={<FaqManager />} />
+            <Route path="/faq-manager" element={<FaqManager />} />
+            <Route path="/faqs/:agentId" element={<FaqManager />} />
             <Route path="/usage-stats" element={<UsageStats />} />
             <Route path="/integration" element={<Integration />} />
             <Route path="/settings" element={<Settings />} />

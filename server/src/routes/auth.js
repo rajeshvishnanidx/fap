@@ -152,22 +152,97 @@ router.put('/openai-key', authenticateToken, async (req, res) => {
       length: process.env.ENCRYPTION_KEY ? process.env.ENCRYPTION_KEY.length : 0
     });
 
-    // Save the API key
-    user.openaiApiKey = openaiApiKey;
-    await user.save();
-    
-    // Verify the key was saved
-    const updatedUser = await User.findById(req.user._id).select('+openaiApiKey');
-    console.log('API key saved status:', {
-      hasKey: !!updatedUser.openaiApiKey,
-      keyLength: updatedUser.openaiApiKey ? updatedUser.openaiApiKey.length : 0
-    });
+    // Save the API key - use a transaction to ensure consistency
+    try {
+      // Assign the key directly - our getter/setter in the model will handle encryption
+      user.openaiApiKey = openaiApiKey;
+      await user.save();
 
-    console.log('Successfully updated OpenAI API key');
-    res.json({ message: 'OpenAI API key updated successfully' });
+      // Verify the key was saved by retrieving it again
+      const updatedUser = await User.findById(req.user._id).select('+openaiApiKey');
+      
+      // Log save status (but don't log actual key values)
+      console.log('API key saved status:', {
+        hasKey: !!updatedUser.openaiApiKey,
+        keyLength: updatedUser.openaiApiKey ? updatedUser.openaiApiKey.length : 0
+      });
+
+      // Test if key is retrievable and correctly stored
+      const retrievedKey = updatedUser.openaiApiKey; // Should trigger getter for decryption
+      
+      if (!retrievedKey || !retrievedKey.startsWith('sk-')) {
+        console.error('Key was saved but cannot be correctly retrieved. Check encryption setup.');
+        return res.status(500).json({ 
+          message: 'API key saved but retrieval issue detected. Try testing in chat.',
+          status: 'partial_success'
+        });
+      }
+
+      console.log('Successfully updated OpenAI API key');
+      res.json({ message: 'OpenAI API key updated successfully' });
+    } catch (saveError) {
+      console.error('Error saving OpenAI API key:', saveError);
+      res.status(500).json({ 
+        message: 'Error while saving API key', 
+        error: saveError.message,
+        suggestion: 'Check server logs for more details'
+      });
+    }
   } catch (error) {
-    console.error('Error updating OpenAI API key:', error);
+    console.error('Error in update OpenAI API key endpoint:', error);
     res.status(500).json({ message: 'Error updating API key', error: error.message });
+  }
+});
+
+// Diagnostic endpoint for OpenAI API key
+router.get('/check-openai-key', authenticateToken, async (req, res) => {
+  try {
+    // Check if ENCRYPTION_KEY is set
+    if (!process.env.ENCRYPTION_KEY) {
+      return res.status(500).json({ 
+        message: 'Server configuration error: ENCRYPTION_KEY not set',
+        envVars: {
+          hasEncryptionKey: !!process.env.ENCRYPTION_KEY
+        }
+      });
+    }
+    
+    // Try to retrieve the user with the API key
+    const user = await User.findById(req.user._id).select('+openaiApiKey');
+    
+    // Check if the key exists and can be decrypted
+    const apiKeyStatus = {
+      keyExists: !!user.openaiApiKey,
+      keyFormat: user.openaiApiKey ? (user.openaiApiKey.includes(':') ? 'encrypted' : 'invalid') : 'none',
+      keyDecryptable: false
+    };
+    
+    // Try to decrypt the key if it exists
+    if (user.openaiApiKey) {
+      try {
+        // We don't want to expose the actual key, just check if it can be decrypted
+        const decrypted = user.openaiApiKey; // This will trigger the getter
+        apiKeyStatus.keyDecryptable = !!decrypted;
+        apiKeyStatus.startsWithSk = decrypted && decrypted.startsWith('sk-');
+      } catch (error) {
+        console.error('Error decrypting API key:', error);
+        apiKeyStatus.decryptError = error.message;
+      }
+    }
+    
+    res.json({
+      message: 'OpenAI API key diagnostic results',
+      apiKeyStatus,
+      userId: user._id,
+      email: user.email
+    });
+    
+  } catch (error) {
+    console.error('Error in OpenAI API key diagnostic:', error);
+    res.status(500).json({ 
+      message: 'Error running diagnostics', 
+      error: error.message 
+    });
   }
 });
 

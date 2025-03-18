@@ -4,16 +4,22 @@ const apiUsageSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: true,
+    index: true
   },
   agent: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Agent',
-    required: true
+    index: true
   },
   date: {
     type: Date,
-    required: true
+    default: Date.now,
+    index: true
+  },
+  model: {
+    type: String,
+    default: 'gpt-3.5-turbo'
   },
   tokenCount: {
     type: Number,
@@ -27,28 +33,46 @@ const apiUsageSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  model: {
-    type: String,
-    required: true
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
   }
-}, {
-  timestamps: true
 });
 
-// Index for efficient querying
+// Add compound index for most common query patterns
 apiUsageSchema.index({ user: 1, date: 1 });
 apiUsageSchema.index({ user: 1, agent: 1, date: 1 });
 
-// Method to calculate cost based on model and tokens
+// Calculate cost based on model and tokens
 apiUsageSchema.methods.calculateCost = function() {
-  const rates = {
-    'gpt-4': 0.03, // $0.03 per 1K tokens
-    'gpt-3.5-turbo': 0.002 // $0.002 per 1K tokens
-  };
+  // GPT-4 rate: $0.03 per 1K tokens (0.00003 per token)
+  // GPT-3.5-turbo rate: $0.002 per 1K tokens (0.000002 per token)
+  let rate;
   
-  const rate = rates[this.model] || rates['gpt-3.5-turbo'];
-  this.cost = (this.tokenCount / 1000) * rate;
+  if (this.model === 'gpt-4') {
+    rate = 0.00003;
+  } else if (this.model === 'gpt-3.5-turbo') {
+    rate = 0.000002;
+  } else {
+    // Default rate for other models
+    rate = 0.000002;
+  }
+  
+  this.cost = this.tokenCount * rate;
+  return this.cost;
 };
+
+// Add index for aggregation queries
+apiUsageSchema.index({ user: 1, agent: 1, model: 1, date: 1 });
+
+// Add a TTL index to automatically delete records older than 6 months
+apiUsageSchema.index({ date: 1 }, {
+  expireAfterSeconds: 15552000 // 180 days (6 months)
+});
 
 const ApiUsage = mongoose.model('ApiUsage', apiUsageSchema);
 

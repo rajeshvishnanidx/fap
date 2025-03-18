@@ -17,6 +17,8 @@ import {
   LinearProgress,
   Paper,
   Alert,
+  Snackbar,
+  CircularProgress
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -28,69 +30,155 @@ import {
   Message as MessageIcon,
   Upload as UploadIcon,
   Person as PersonIcon,
+  Assessment as AssessmentIcon,
+  Api as ApiIcon,
+  Event as EventIcon,
+  Refresh as RefreshIcon
 } from '@mui/icons-material';
 import axios from 'axios';
-import { format } from 'date-fns';
+import { format, isValid, formatDistance } from 'date-fns';
+import { useTheme } from '@mui/material/styles';
+import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
 function Dashboard() {
   const navigate = useNavigate();
+  const theme = useTheme();
   const [stats, setStats] = useState({
     totalAgents: 0,
     totalChats: 0,
     totalKnowledgeBase: 0,
     apiUsage: 0,
   });
-  const [recentActivity, setRecentActivity] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [activities, setActivities] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [activityLoading, setActivityLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [fetchTimings, setFetchTimings] = useState({});
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
 
   useEffect(() => {
     fetchDashboardData();
   }, []);
 
+  // Helper function to safely format dates
+  const formatDate = (timestamp) => {
+    if (!timestamp) return 'Unknown date';
+    
+    const date = new Date(timestamp);
+    return isValid(date) ? format(date, 'MMM d, yyyy h:mm a') : 'Invalid date';
+  };
+
   const fetchDashboardData = async () => {
     try {
-      setLoading(true);
       setError(null);
-      const token = localStorage.getItem('token');
-      
-      if (!token) {
-        navigate('/login');
-        return;
-      }
-
+      setIsLoading(true);
+      setSnackbarOpen(false);
       console.log('Fetching dashboard data...');
-      const [statsResponse, activityResponse] = await Promise.all([
-        axios.get(`${process.env.REACT_APP_API_URL}/dashboard/stats`, {
-          headers: { 
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          validateStatus: function (status) {
-            return status < 500; // Resolve only if the status code is less than 500
+      
+      const startTime = performance.now();
+      
+      // Fetch stats separately
+      const fetchStats = async () => {
+        try {
+          setStatsLoading(true);
+          setError(null);
+          
+          const token = localStorage.getItem('token');
+          if (!token) {
+            console.error('No authentication token found');
+            navigate('/login');
+            return;
           }
-        }),
-        axios.get(`${process.env.REACT_APP_API_URL}/dashboard/activity`, {
-          headers: { 
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          validateStatus: function (status) {
-            return status < 500; // Resolve only if the status code is less than 500
+          
+          console.log('Fetching dashboard stats with token:', token ? 'Token exists' : 'No token');
+          
+          // Use explicit URL instead of environment variable
+          const response = await axios.get('http://localhost:5000/api/dashboard/stats', {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: 10000,
+            validateStatus: function(status) {
+              return status < 500; // Don't reject on 4xx responses
+            }
+          });
+          
+          console.log('Dashboard stats API response status:', response.status);
+          console.log('Dashboard stats API response:', response.data);
+          
+          if (response.status === 200) {
+            setStats(response.data);
+            console.log('Updated dashboard stats:', response.data);
+          } else {
+            throw new Error('Failed to fetch dashboard stats');
           }
-        }),
+        } catch (error) {
+          console.error('Error fetching dashboard stats:', error);
+          setError('Failed to load dashboard data');
+        } finally {
+          setStatsLoading(false);
+        }
+      };
+      
+      // Fetch activity separately
+      const fetchActivity = async () => {
+        setActivityLoading(true);
+        const activityStart = performance.now();
+        try {
+          const token = localStorage.getItem('token');
+          
+          if (!token) {
+            navigate('/login');
+            return;
+          }
+
+          const response = await axios.get(`${process.env.REACT_APP_API_URL}/dashboard/activity`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            validateStatus: function (status) {
+              return status < 500; // Resolve only if the status code is less than 500
+            }
+          });
+
+          // Check if the request failed
+          if (response.status !== 200) {
+            throw new Error('Failed to fetch activity');
+          }
+
+          console.log('Activity response:', response.data);
+          setActivities(response.data);
+          const activityEnd = performance.now();
+          setFetchTimings(prev => ({
+            ...prev,
+            activity: Math.round(activityEnd - activityStart)
+          }));
+        } catch (err) {
+          console.error('Error fetching activity:', err);
+          throw err;
+        } finally {
+          setActivityLoading(false);
+        }
+      };
+      
+      // Run both fetches in parallel
+      await Promise.all([
+        fetchStats().catch(e => console.error('Stats fetch failed:', e)),
+        fetchActivity().catch(e => console.error('Activity fetch failed:', e))
       ]);
-
-      // Check if either request failed
-      if (statsResponse.status !== 200 || activityResponse.status !== 200) {
-        throw new Error('Failed to fetch dashboard data');
-      }
-
-      console.log('Stats response:', statsResponse.data);
-      console.log('Activity response:', activityResponse.data);
-
-      setStats(statsResponse.data);
-      setRecentActivity(activityResponse.data);
+      
+      const endTime = performance.now();
+      setFetchTimings(prev => ({
+        ...prev,
+        total: Math.round(endTime - startTime)
+      }));
+      
+      // Show timing info in snackbar
+      setSnackbarOpen(true);
+      
     } catch (error) {
       console.error('Error fetching dashboard data:', error.response || error);
       setError(
@@ -98,7 +186,7 @@ function Dashboard() {
         'Failed to load dashboard data. Please check if the server is running.'
       );
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
@@ -111,13 +199,6 @@ function Dashboard() {
       color: '#2563eb',
     },
     {
-      title: 'Start Chat',
-      description: 'Chat with your existing AI agents',
-      icon: <ChatIcon />,
-      action: () => navigate('/chat'),
-      color: '#7c3aed',
-    },
-    {
       title: 'Add Knowledge',
       description: 'Expand your agents\' knowledge base',
       icon: <UploadIcon />,
@@ -126,10 +207,19 @@ function Dashboard() {
     },
   ];
 
-  if (loading) {
+  // Prepare data for charts
+  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
+  
+  const pieData = [
+    { name: 'Agents', value: stats.totalAgents || 0 },
+    { name: 'Chats', value: stats.totalChats || 0 },
+    { name: 'Knowledge Base', value: stats.totalKnowledgeBase || 0 },
+  ];
+
+  if (isLoading && !statsLoading && !activityLoading) {
     return (
       <Box sx={{ width: '100%', mt: 2 }}>
-        <LinearProgress />
+        <CircularProgress />
         <Typography variant="body1" sx={{ mt: 2, textAlign: 'center' }}>
           Loading dashboard data...
         </Typography>
@@ -152,6 +242,20 @@ function Dashboard() {
 
   return (
     <Box sx={{ p: 3, width: '100%' }}>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+        <Typography variant="h4" component="h1" gutterBottom>
+          Dashboard
+        </Typography>
+        <Button 
+          variant="contained" 
+          onClick={fetchDashboardData} 
+          startIcon={<RefreshIcon />}
+          disabled={isLoading}
+        >
+          {isLoading ? 'Refreshing...' : 'Refresh'}
+        </Button>
+      </Box>
+      
       <Grid container spacing={3}>
         {/* Stats Cards */}
         <Grid item xs={12} container spacing={3}>
@@ -165,7 +269,7 @@ function Dashboard() {
             >
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <AgentIcon sx={{ fontSize: 40, mr: 1 }} />
+                  <AssessmentIcon sx={{ fontSize: 40, mr: 1 }} />
                   <Typography variant="h4">{stats.totalAgents}</Typography>
                 </Box>
                 <Typography variant="subtitle1">Active Agents</Typography>
@@ -216,10 +320,24 @@ function Dashboard() {
             >
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <StatsIcon sx={{ fontSize: 40, mr: 1 }} />
+                  <ApiIcon sx={{ fontSize: 40, mr: 1 }} />
                   <Typography variant="h4">{stats.apiUsage}%</Typography>
                 </Box>
                 <Typography variant="subtitle1">API Usage</Typography>
+                <Box sx={{ mt: 1, width: '100%', position: 'relative' }}>
+                  <LinearProgress
+                    variant="determinate"
+                    value={stats.apiUsage}
+                    sx={{
+                      height: 10,
+                      borderRadius: 5,
+                      backgroundColor: 'rgba(255,255,255,0.3)',
+                      '& .MuiLinearProgress-bar': {
+                        backgroundColor: 'white',
+                      }
+                    }}
+                  />
+                </Box>
               </CardContent>
             </Card>
           </Grid>
@@ -295,7 +413,7 @@ function Dashboard() {
                 </Button>
               </Box>
               <List>
-                {recentActivity.map((activity, index) => (
+                {activities.map((activity, index) => (
                   <React.Fragment key={index}>
                     <ListItem alignItems="flex-start">
                       <ListItemAvatar>
@@ -312,7 +430,7 @@ function Dashboard() {
                           {activity.type === 'chat' ? (
                             <MessageIcon />
                           ) : activity.type === 'agent' ? (
-                            <AgentIcon />
+                            <AssessmentIcon />
                           ) : (
                             <StorageIcon />
                           )}
@@ -320,10 +438,10 @@ function Dashboard() {
                       </ListItemAvatar>
                       <ListItemText
                         primary={activity.description}
-                        secondary={format(new Date(activity.timestamp), 'MMM d, yyyy h:mm a')}
+                        secondary={`${formatDistance(new Date(activity.timestamp), new Date(), { addSuffix: true })}`}
                       />
                     </ListItem>
-                    {index < recentActivity.length - 1 && <Divider variant="inset" component="li" />}
+                    {index < activities.length - 1 && <Divider variant="inset" component="li" />}
                   </React.Fragment>
                 ))}
               </List>
@@ -331,6 +449,13 @@ function Dashboard() {
           </Grid>
         </Grid>
       </Grid>
+      
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={5000}
+        onClose={() => setSnackbarOpen(false)}
+        message={`Dashboard loaded in ${fetchTimings.total || 0}ms`}
+      />
     </Box>
   );
 }

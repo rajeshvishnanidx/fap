@@ -6,6 +6,7 @@ const agentRoutes = require('./routes/agents');
 const chatRoutes = require('./routes/chat');
 const knowledgeBaseRoutes = require('./routes/knowledgeBase');
 const dashboardRoutes = require('./routes/dashboard');
+const faqRoutes = require('./routes/faq');
 require('dotenv').config();
 
 const app = express();
@@ -14,12 +15,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Create uploads directory if it doesn't exist
+const fs = require('fs');
+if (!fs.existsSync('uploads')) {
+  fs.mkdirSync('uploads');
+}
+
 // Routes with /api prefix
 app.use('/api/auth', authRoutes);
 app.use('/api/agents', agentRoutes);
 app.use('/api/chat', chatRoutes);
-app.use('/api/knowledge-base', knowledgeBaseRoutes);
+app.use('/api/kb', knowledgeBaseRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/faqs', faqRoutes);
 
 // Serve static files from public directory
 app.use(express.static('public'));

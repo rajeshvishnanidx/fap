@@ -31,6 +31,10 @@ import {
   TableHead,
   TableRow,
   TablePagination,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import {
   Language as WebIcon,
@@ -43,70 +47,179 @@ import {
   Map as MapIcon,
   Error as ErrorIcon,
   Schedule as PendingIcon,
+  CloudUpload,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import axios from 'axios';
 
-function KnowledgeBase() {
+const KnowledgeBase = () => {
+  // Tab and URL states
+  const [activeTab, setActiveTab] = useState(0);
   const [websiteUrl, setWebsiteUrl] = useState('');
+  const [sitemapUrl, setSitemapUrl] = useState('');
+
+  // Loading states
   const [scraping, setScraping] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [scrapingProgress, setScrapingProgress] = useState(null);
-  const [knowledgeBaseItems, setKnowledgeBaseItems] = useState([]);
-  const [selectedAgent, setSelectedAgent] = useState('');
-  const [agents, setAgents] = useState([]);
-  const [error, setError] = useState('');
-  const [selectedContent, setSelectedContent] = useState(null);
-  const [contentDialogOpen, setContentDialogOpen] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(false);
   const [loadingContent, setLoadingContent] = useState(false);
+  const [loadingAgents, setLoadingAgents] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Data states
+  const [knowledgeBaseItems, setKnowledgeBaseItems] = useState([]);
+  const [agents, setAgents] = useState([]);
+  const [selectedAgent, setSelectedAgent] = useState('');
+  const [selectedContent, setSelectedContent] = useState(null);
+  const [scrapingProgress, setScrapingProgress] = useState(null);
+  const [progressStats, setProgressStats] = useState(null);
+
+  // Dialog states
+  const [contentDialogOpen, setContentDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [sitemapUrl, setSitemapUrl] = useState('');
-  const [loadingProgress, setLoadingProgress] = useState(false);
-  const [progressStats, setProgressStats] = useState(null);
+
+  // Error state
+  const [error, setError] = useState('');
+
+  // Pagination states
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [activeTab, setActiveTab] = useState(0);
+  
+  // Add filter state
+  const [statusFilter, setStatusFilter] = useState(null);
+
+  // Add separate pagination states for knowledge base items
+  const [kbPage, setKbPage] = useState(0);
+  const [kbRowsPerPage, setKbRowsPerPage] = useState(10);
+  const [totalKbItems, setTotalKbItems] = useState(0);
 
   useEffect(() => {
-    fetchAgents();
-    if (selectedAgent) {
-      fetchKnowledgeBase();
-      fetchScrapingProgress();
-    }
-  }, [selectedAgent]);
-
-  const fetchAgents = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${process.env.REACT_APP_API_URL}/agents`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setAgents(response.data);
-      if (response.data.length > 0) {
-        setSelectedAgent(response.data[0]._id);
-      }
-    } catch (error) {
-      setError('Error fetching agents');
-      toast.error('Error fetching agents');
-    }
-  };
-
-  const fetchKnowledgeBase = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(
-        `${process.env.REACT_APP_API_URL}/knowledge-base/agent/${selectedAgent}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
+    const fetchAgents = async () => {
+      try {
+        setLoadingAgents(true);
+        const token = localStorage.getItem('token');
+        if (!token) {
+          console.error('No authentication token found');
+          setError('Authentication token missing. Please log in again.');
+          setLoadingAgents(false);
+          return;
         }
-      );
-      setKnowledgeBaseItems(response.data);
+
+        const response = await axios.get('http://localhost:5000/api/agents?fields=name,_id', {
+          headers: {
+            Authorization: `Bearer ${token}`
+          },
+          timeout: 10000,
+          validateStatus: function (status) {
+            return (status >= 200 && status < 300) || status === 404;
+          }
+        });
+
+        if (response.status === 200) {
+          const agentsList = response.data;
+          console.log(`Fetched ${agentsList.length} real agents for knowledge base`);
+          
+          if (agentsList.length > 0) {
+            setAgents(agentsList);
+            
+            if (!selectedAgent && agentsList.length > 0) {
+              setSelectedAgent(agentsList[0]._id);
+              fetchKnowledgeBaseItems();
+            } else if (selectedAgent) {
+              fetchKnowledgeBaseItems();
+            }
+          } else {
+            setError('No agents found. Please create an agent first.');
+            setLoadingAgents(false);
+          }
+        } else if (response.status === 404) {
+          setError('No agents found. Please create an agent first.');
+          setLoadingAgents(false);
+        }
+      } catch (err) {
+        console.error('Error fetching agents:', err);
+        
+        // Instead of using mock agents, show helpful error message
+        if (err.response && (err.response.status === 401 || err.response.status === 403)) {
+          setError('Authentication failed. Please log in again.');
+        } else if (err.code === 'ECONNABORTED') {
+          setError('Request timed out. Server may be unavailable.');
+        } else {
+          setError(`Failed to fetch agents: ${err.message}`);
+        }
+        
+        setLoadingAgents(false);
+      }
+    };
+    fetchAgents();
+  }, []);
+
+  useEffect(() => {
+    if (selectedAgent) {
+      fetchKnowledgeBaseItems();
+    } else {
+      setKnowledgeBaseItems([]);
+    }
+  }, [selectedAgent, kbPage, kbRowsPerPage]);
+
+  // Add interval to update scraping progress
+  useEffect(() => {
+    let progressInterval;
+    
+    // Only set up the interval if we're on the sitemap tab and have an agent selected
+    if (activeTab === 1 && selectedAgent) {
+      // Initial fetch
+      fetchScrapingProgress();
+      
+      // Set up interval to fetch progress every 5 seconds
+      progressInterval = setInterval(() => {
+        fetchScrapingProgress();
+      }, 5000);
+    }
+    
+    // Clean up interval on unmount or when dependencies change
+    return () => {
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
+    };
+  }, [activeTab, selectedAgent]);
+
+  // Close content view when tab changes
+  useEffect(() => {
+    // Reset selected content when tab changes
+    setSelectedContent(null);
+  }, [activeTab]);
+
+  const fetchKnowledgeBaseItems = async () => {
+    if (!selectedAgent) return;
+    try {
+      console.log('Fetching knowledge base items with params:', {
+        agent: selectedAgent,
+        page: kbPage + 1,
+        limit: kbRowsPerPage
+      });
+      
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${process.env.REACT_APP_API_URL}/knowledge-base/agent/${selectedAgent}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: {
+          page: kbPage + 1, // API uses 1-indexed pages
+          limit: kbRowsPerPage
+        }
+      });
+      
+      console.log('Knowledge base response:', response.data);
+      setKnowledgeBaseItems(response.data.items || []);
+      setTotalKbItems(response.data.total || 0);
+      
+      console.log('Items set:', response.data.items?.length || 0, 'Total:', response.data.total || 0);
     } catch (error) {
-      setError('Error fetching knowledge base');
-      toast.error('Error fetching knowledge base');
+      console.error('Error fetching knowledge base items:', error);
+      toast.error('Failed to fetch knowledge base items');
     }
   };
 
@@ -133,6 +246,10 @@ function KnowledgeBase() {
   };
 
   const handleFileUpload = async (event) => {
+    if (!selectedAgent) {
+      toast.error('Please select an agent first');
+      return;
+    }
     const files = Array.from(event.target.files);
     setUploading(true);
     setUploadProgress(0);
@@ -160,7 +277,7 @@ function KnowledgeBase() {
         );
 
         toast.success(`File ${file.name} uploaded and processed successfully`);
-        fetchKnowledgeBase(); // Refresh the knowledge base list
+        fetchKnowledgeBaseItems(); // Refresh the knowledge base list
       } catch (error) {
         const errorMessage = error.response?.data?.message || 'Error uploading file';
         setError(errorMessage);
@@ -174,11 +291,14 @@ function KnowledgeBase() {
   };
 
   const handleWebsiteScrape = async () => {
+    if (!selectedAgent) {
+      toast.error('Please select an agent first');
+      return;
+    }
     if (!websiteUrl) {
       toast.error('Please enter a website URL');
       return;
     }
-
     setScraping(true);
     setScrapingProgress(0);
     setError('');
@@ -197,7 +317,7 @@ function KnowledgeBase() {
       );
 
       toast.success('Website content scraped successfully!');
-      fetchKnowledgeBase(); // Refresh the knowledge base list
+      fetchKnowledgeBaseItems(); // Refresh the knowledge base list
       setWebsiteUrl(''); // Clear the input
     } catch (error) {
       console.error('Scraping error:', error);
@@ -224,10 +344,16 @@ function KnowledgeBase() {
   };
 
   const handleSitemapScrape = async () => {
+    if (!selectedAgent) {
+      toast.error('Please select an agent first');
+      return;
+    }
     if (!sitemapUrl) {
       toast.error('Please enter a sitemap URL');
       return;
     }
+    setLoadingProgress(true);
+    setError('');
 
     try {
       const token = localStorage.getItem('token');
@@ -248,6 +374,8 @@ function KnowledgeBase() {
     } catch (error) {
       console.error('Sitemap processing error:', error);
       toast.error(error.response?.data?.message || 'Error processing sitemap');
+    } finally {
+      setLoadingProgress(false);
     }
   };
 
@@ -285,48 +413,127 @@ function KnowledgeBase() {
     }
   };
 
-  const renderProgressTable = () => (
+  const renderProgressTable = () => {
+    // Filter the progress data based on selected status
+    const filteredProgress = statusFilter 
+      ? scrapingProgress?.filter(item => item.status === statusFilter)
+      : scrapingProgress;
+      
+    return (
     <Box sx={{ width: '100%', mt: 2 }}>
       {progressStats && (
         <Box sx={{ mb: 2 }}>
           <Grid container spacing={2}>
             <Grid item xs={12} sm={6} md={2}>
-              <Paper sx={{ p: 2, textAlign: 'center' }}>
+              <Paper 
+                sx={{ 
+                  p: 2, 
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  border: statusFilter === null ? '2px solid #1976d2' : 'none',
+                  boxShadow: statusFilter === null ? 3 : 1
+                }}
+                onClick={() => setStatusFilter(null)}
+              >
                 <Typography variant="h6">{progressStats.total}</Typography>
                 <Typography variant="body2">Total URLs</Typography>
               </Paper>
             </Grid>
             <Grid item xs={12} sm={6} md={2}>
-              <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'grey.100' }}>
+              <Paper 
+                sx={{ 
+                  p: 2, 
+                  textAlign: 'center', 
+                  bgcolor: 'grey.100',
+                  cursor: 'pointer',
+                  border: statusFilter === 'pending' ? '2px solid #1976d2' : 'none',
+                  boxShadow: statusFilter === 'pending' ? 3 : 1
+                }}
+                onClick={() => setStatusFilter('pending')}
+              >
                 <Typography variant="h6">{progressStats.pending}</Typography>
                 <Typography variant="body2">Pending</Typography>
               </Paper>
             </Grid>
             <Grid item xs={12} sm={6} md={2}>
-              <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'info.light' }}>
+              <Paper 
+                sx={{ 
+                  p: 2, 
+                  textAlign: 'center', 
+                  bgcolor: 'info.light',
+                  cursor: 'pointer',
+                  border: statusFilter === 'processing' ? '2px solid #1976d2' : 'none',
+                  boxShadow: statusFilter === 'processing' ? 3 : 1
+                }}
+                onClick={() => setStatusFilter('processing')}
+              >
                 <Typography variant="h6">{progressStats.processing}</Typography>
                 <Typography variant="body2">Processing</Typography>
               </Paper>
             </Grid>
             <Grid item xs={12} sm={6} md={2}>
-              <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'success.light' }}>
+              <Paper 
+                sx={{ 
+                  p: 2, 
+                  textAlign: 'center', 
+                  bgcolor: 'success.light',
+                  cursor: 'pointer',
+                  border: statusFilter === 'completed' ? '2px solid #1976d2' : 'none',
+                  boxShadow: statusFilter === 'completed' ? 3 : 1
+                }}
+                onClick={() => setStatusFilter('completed')}
+              >
                 <Typography variant="h6">{progressStats.completed}</Typography>
                 <Typography variant="body2">Completed</Typography>
               </Paper>
             </Grid>
             <Grid item xs={12} sm={6} md={2}>
-              <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'error.light' }}>
+              <Paper 
+                sx={{ 
+                  p: 2, 
+                  textAlign: 'center', 
+                  bgcolor: 'error.light',
+                  cursor: 'pointer',
+                  border: statusFilter === 'failed' ? '2px solid #1976d2' : 'none',
+                  boxShadow: statusFilter === 'failed' ? 3 : 1
+                }}
+                onClick={() => setStatusFilter('failed')}
+              >
                 <Typography variant="h6">{progressStats.failed}</Typography>
                 <Typography variant="body2">Failed</Typography>
               </Paper>
             </Grid>
             <Grid item xs={12} sm={6} md={2}>
-              <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'warning.light' }}>
+              <Paper 
+                sx={{ 
+                  p: 2, 
+                  textAlign: 'center', 
+                  bgcolor: 'warning.light',
+                  cursor: 'pointer'
+                }}
+              >
                 <Typography variant="h6">{progressStats.totalChunks}</Typography>
                 <Typography variant="body2">Total Chunks</Typography>
               </Paper>
             </Grid>
           </Grid>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
+            {statusFilter && (
+              <Button 
+                startIcon={<VisibilityIcon />}
+                onClick={() => setStatusFilter(null)} 
+              >
+                Show All
+              </Button>
+            )}
+            <Button 
+              startIcon={<RefreshIcon />} 
+              onClick={fetchScrapingProgress} 
+              disabled={loadingProgress}
+            >
+              {loadingProgress ? 'Refreshing...' : 'Refresh Progress'}
+            </Button>
+          </Box>
         </Box>
       )}
 
@@ -343,7 +550,7 @@ function KnowledgeBase() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {scrapingProgress
+            {filteredProgress
               ?.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
               .map((progress) => (
                 <TableRow key={progress._id}>
@@ -367,7 +574,7 @@ function KnowledgeBase() {
         </Table>
         <TablePagination
           component="div"
-          count={scrapingProgress?.length || 0}
+          count={filteredProgress?.length || 0}
           page={page}
           onPageChange={(e, newPage) => setPage(newPage)}
           rowsPerPage={rowsPerPage}
@@ -391,7 +598,7 @@ function KnowledgeBase() {
         </Box>
       )}
     </Box>
-  );
+  )};
 
   const handleDeleteClick = (item) => {
     setItemToDelete(item);
@@ -412,7 +619,7 @@ function KnowledgeBase() {
       );
 
       toast.success('Item removed from knowledge base');
-      fetchKnowledgeBase(); // Refresh the list
+      fetchKnowledgeBaseItems(); // Refresh the list
       setDeleteDialogOpen(false);
       setItemToDelete(null);
     } catch (error) {
@@ -441,7 +648,6 @@ function KnowledgeBase() {
       }
       
       setSelectedContent(response.data);
-      setContentDialogOpen(true);
     } catch (error) {
       console.error('View content error:', error);
       const errorMessage = error.response?.data?.message || error.message || 'Error fetching content';
@@ -467,307 +673,346 @@ function KnowledgeBase() {
         </Grid>
 
         <Grid item xs={12}>
-          <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
-            <Tab label="Single URL" />
-            <Tab label="Sitemap" />
-            <Tab label="Upload" />
-            <Tab label="Knowledge Base" />
-          </Tabs>
+          <FormControl fullWidth>
+            <InputLabel>Select Agent</InputLabel>
+            <Select
+              value={selectedAgent}
+              onChange={(e) => setSelectedAgent(e.target.value)}
+              label="Select Agent"
+            >
+              <MenuItem value="">
+                <em>Select an agent</em>
+              </MenuItem>
+              {agents.map((agent) => (
+                <MenuItem key={agent._id} value={agent._id}>
+                  {agent.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
         </Grid>
 
-        {activeTab === 0 && (
-          <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Scrape Single URL
-                </Typography>
-                <Grid container spacing={2} alignItems="center">
-                  <Grid item xs={12} md={8}>
+        {/* Main content area with left and right panes */}
+        <Grid item xs={12}>
+          <Grid container spacing={2}>
+            {/* Left pane for tabs and content lists */}
+            <Grid item xs={12} md={selectedContent ? 6 : 12} lg={selectedContent ? 5 : 12}>
+              <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+                <Tabs 
+                  value={activeTab} 
+                  onChange={(e, newValue) => setActiveTab(newValue)}
+                  variant="scrollable"
+                  scrollButtons="auto"
+                  sx={{ minHeight: '48px' }}
+                >
+                  <Tab label="Single URL" />
+                  <Tab label="Sitemap" />
+                  <Tab label="Upload" />
+                  <Tab label="Knowledge Base" />
+                </Tabs>
+              </Box>
+
+              {activeTab === 0 && (
+                <Card sx={{ height: selectedContent ? 'calc(100vh - 270px)' : 'auto', overflow: 'auto' }}>
+                  <CardContent>
                     <TextField
                       fullWidth
                       label="Website URL"
                       value={websiteUrl}
                       onChange={(e) => setWebsiteUrl(e.target.value)}
-                      placeholder="https://example.com"
                       disabled={!selectedAgent || scraping}
+                      helperText={!selectedAgent ? "Please select an agent first" : ""}
+                      sx={{ mb: 2 }}
                     />
-                  </Grid>
-                  <Grid item xs={12} md={4}>
                     <Button
                       fullWidth
                       variant="contained"
                       onClick={handleWebsiteScrape}
-                      disabled={!selectedAgent || scraping || !websiteUrl}
-                      startIcon={<WebIcon />}
+                      disabled={!selectedAgent || !websiteUrl || scraping}
+                      startIcon={scraping ? <CircularProgress size={20} /> : <CloudUpload />}
                     >
-                      Start Scraping
+                      {scraping ? 'Processing...' : 'Start Scraping'}
                     </Button>
-                  </Grid>
-                </Grid>
-                {scraping && (
-                  <Box sx={{ mt: 2 }}>
-                    <LinearProgress />
-                    <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
-                      Scraping in progress...
-                    </Typography>
-                  </Box>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-        )}
+                  </CardContent>
+                </Card>
+              )}
 
-        {activeTab === 1 && (
-          <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Scrape from Sitemap
-                </Typography>
-                <Grid container spacing={2} alignItems="center">
-                  <Grid item xs={12} md={8}>
+              {activeTab === 1 && (
+                <Card sx={{ height: selectedContent ? 'calc(100vh - 270px)' : 'auto', overflow: 'auto' }}>
+                  <CardContent>
                     <TextField
                       fullWidth
                       label="Sitemap URL"
                       value={sitemapUrl}
                       onChange={(e) => setSitemapUrl(e.target.value)}
-                      placeholder="https://example.com/sitemap.xml"
-                      disabled={!selectedAgent}
+                      disabled={!selectedAgent || loadingProgress}
+                      helperText={!selectedAgent ? "Please select an agent first" : ""}
+                      sx={{ mb: 2 }}
                     />
-                  </Grid>
-                  <Grid item xs={12} md={4}>
                     <Button
                       fullWidth
                       variant="contained"
                       onClick={handleSitemapScrape}
-                      disabled={!selectedAgent || !sitemapUrl}
-                      startIcon={<MapIcon />}
+                      disabled={!selectedAgent || !sitemapUrl || loadingProgress}
+                      startIcon={loadingProgress ? <CircularProgress size={20} /> : <CloudUpload />}
                     >
-                      Process Sitemap
+                      {loadingProgress ? 'Processing...' : 'Process Sitemap'}
                     </Button>
-                  </Grid>
-                </Grid>
+                    {renderProgressTable()}
+                  </CardContent>
+                </Card>
+              )}
 
-                <Box sx={{ mt: 2 }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                    <Typography variant="h6">Scraping Progress</Typography>
-                    <IconButton onClick={fetchScrapingProgress} disabled={loadingProgress}>
-                      <RefreshIcon />
-                    </IconButton>
-                  </Box>
-                  {loadingProgress ? (
-                    <LinearProgress />
-                  ) : (
-                    renderProgressTable()
-                  )}
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        )}
-
-        {activeTab === 2 && (
-          <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Upload Files
-                </Typography>
-                <Button
-                  variant="outlined"
-                  component="label"
-                  startIcon={<UploadIcon />}
-                  fullWidth
-                  disabled={!selectedAgent || uploading}
-                >
-                  Upload Documents
-                  <input
-                    type="file"
-                    hidden
-                    multiple
-                    onChange={handleFileUpload}
-                    accept=".pdf,.doc,.docx,.txt"
-                  />
-                </Button>
-                {uploading && (
-                  <Box sx={{ mt: 2 }}>
-                    <LinearProgress variant="determinate" value={uploadProgress} />
-                    <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
-                      Upload Progress: {Math.round(uploadProgress)}%
-                    </Typography>
-                  </Box>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-        )}
-
-        {activeTab === 3 && (
-          <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Typography variant="h6">
-                    Knowledge Base Items ({knowledgeBaseItems.length})
-                  </Typography>
-                  <Box>
-                    <Chip 
-                      icon={<WebIcon />} 
-                      label={`Websites: ${knowledgeBaseItems.filter(item => item.type === 'website').length}`}
-                      sx={{ mr: 1 }}
+              {activeTab === 2 && (
+                <Card sx={{ height: selectedContent ? 'calc(100vh - 270px)' : 'auto', overflow: 'auto' }}>
+                  <CardContent>
+                    <input
+                      type="file"
+                      accept=".txt,.pdf,.doc,.docx"
+                      onChange={handleFileUpload}
+                      style={{ display: 'none' }}
+                      id="file-upload"
+                      disabled={!selectedAgent || uploading}
                     />
-                    <Chip 
-                      icon={<FileIcon />} 
-                      label={`Files: ${knowledgeBaseItems.filter(item => item.type === 'file').length}`}
-                    />
-                  </Box>
-                </Box>
-                <List>
-                  {knowledgeBaseItems.map((item) => (
-                    <React.Fragment key={item._id}>
-                      <ListItem
-                        secondaryAction={
-                          <Box>
-                            <IconButton
-                              edge="end"
-                              aria-label="view"
-                              onClick={() => handleViewContent(item._id)}
-                              disabled={loadingContent}
-                              sx={{ mr: 1 }}
-                            >
-                              {loadingContent ? (
-                                <CircularProgress size={24} />
-                              ) : (
-                                <VisibilityIcon />
-                              )}
-                            </IconButton>
-                            <IconButton
-                              edge="end"
-                              aria-label="delete"
-                              onClick={() => handleDeleteClick(item)}
-                              disabled={isDeleting}
-                            >
-                              {isDeleting && itemToDelete?._id === item._id ? (
-                                <CircularProgress size={24} />
-                              ) : (
-                                <DeleteIcon />
-                              )}
-                            </IconButton>
-                          </Box>
-                        }
+                    <label htmlFor="file-upload">
+                      <Button
+                        fullWidth
+                        variant="contained"
+                        component="span"
+                        disabled={!selectedAgent || uploading}
+                        startIcon={uploading ? <CircularProgress size={20} /> : <CloudUpload />}
                       >
-                        <ListItemIcon>
-                          {item.type === 'website' ? <WebIcon /> : <FileIcon />}
-                        </ListItemIcon>
-                        <ListItemText
-                          primary={item.source}
-                          secondary={`Added: ${new Date(item.addedAt).toLocaleString()}`}
+                        {uploading ? 'Uploading...' : 'Upload Document'}
+                      </Button>
+                    </label>
+                    {!selectedAgent && (
+                      <Typography color="textSecondary" sx={{ mt: 2, textAlign: 'center' }}>
+                        Please select an agent first
+                      </Typography>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {activeTab === 3 && (
+                <Card sx={{ height: selectedContent ? 'calc(100vh - 270px)' : 'auto', overflow: 'auto' }}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                      <Typography variant="h6">
+                        Knowledge Base Items ({totalKbItems})
+                      </Typography>
+                      <Box>
+                        <Chip 
+                          icon={<WebIcon />} 
+                          label={`Websites: ${knowledgeBaseItems.filter(item => item.type === 'website').length}`}
+                          sx={{ mr: 1 }}
                         />
-                      </ListItem>
-                      <Divider />
-                    </React.Fragment>
-                  ))}
-                  {knowledgeBaseItems.length === 0 && (
-                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-                      No items in knowledge base. Add content by scraping websites or uploading files.
-                    </Typography>
-                  )}
-                </List>
-              </CardContent>
-            </Card>
-          </Grid>
-        )}
+                        <Chip 
+                          icon={<FileIcon />} 
+                          label={`Files: ${knowledgeBaseItems.filter(item => item.type === 'file').length}`}
+                        />
+                      </Box>
+                    </Box>
+                    {!selectedAgent ? (
+                      <Typography color="textSecondary" sx={{ textAlign: 'center', py: 4 }}>
+                        Please select an agent to view its knowledge base
+                      </Typography>
+                    ) : (
+                      <>
+                        <List sx={{ p: 0 }}>
+                          {knowledgeBaseItems.map((item) => (
+                            <React.Fragment key={item._id}>
+                              <ListItem
+                                secondaryAction={
+                                  <Box sx={{ display: 'flex', minWidth: '80px', justifyContent: 'flex-end' }}>
+                                    <IconButton
+                                      edge="end"
+                                      aria-label="view"
+                                      onClick={() => handleViewContent(item._id)}
+                                      disabled={loadingContent}
+                                      sx={{ mr: 1 }}
+                                    >
+                                      {loadingContent && itemToDelete?._id === item._id ? (
+                                        <CircularProgress size={24} />
+                                      ) : (
+                                        <VisibilityIcon />
+                                      )}
+                                    </IconButton>
+                                    <IconButton
+                                      edge="end"
+                                      aria-label="delete"
+                                      onClick={() => handleDeleteClick(item)}
+                                      disabled={isDeleting}
+                                    >
+                                      {isDeleting && itemToDelete?._id === item._id ? (
+                                        <CircularProgress size={24} />
+                                      ) : (
+                                        <DeleteIcon />
+                                      )}
+                                    </IconButton>
+                                  </Box>
+                                }
+                                sx={{ 
+                                  pr: 12, // Add padding to prevent text from overlapping with buttons
+                                  '&:hover': { bgcolor: 'rgba(0, 0, 0, 0.04)' }
+                                }}
+                              >
+                                <ListItemIcon>
+                                  {item.type === 'website' ? <WebIcon /> : <FileIcon />}
+                                </ListItemIcon>
+                                <ListItemText
+                                  primary={
+                                    <Typography 
+                                      variant="body1" 
+                                      sx={{ 
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap'
+                                      }}
+                                    >
+                                      {item.source}
+                                    </Typography>
+                                  }
+                                  secondary={
+                                    <Typography variant="body2" color="text.secondary">
+                                      Added: {new Date(item.addedAt).toLocaleString()}
+                                    </Typography>
+                                  }
+                                />
+                              </ListItem>
+                              <Divider />
+                            </React.Fragment>
+                          ))}
+                          {knowledgeBaseItems.length === 0 && (
+                            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                              No items in knowledge base. Add content by scraping websites or uploading files.
+                            </Typography>
+                          )}
+                        </List>
+                        <TablePagination
+                          component="div"
+                          count={totalKbItems}
+                          page={kbPage}
+                          onPageChange={(e, newPage) => setKbPage(newPage)}
+                          rowsPerPage={kbRowsPerPage}
+                          onRowsPerPageChange={(e) => {
+                            setKbRowsPerPage(parseInt(e.target.value, 10));
+                            setKbPage(0);
+                          }}
+                          labelRowsPerPage="Items per page:"
+                        />
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </Grid>
 
-        <Dialog
-          open={contentDialogOpen}
-          onClose={() => setContentDialogOpen(false)}
-          maxWidth="md"
-          fullWidth
-          PaperProps={{
-            sx: { minHeight: '70vh' }
-          }}
-        >
-          <DialogTitle>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography variant="h6">
-                Content View
-              </Typography>
-              <Box>
-                <Chip
-                  icon={selectedContent?.metadata.type === 'website' ? <WebIcon /> : <FileIcon />}
-                  label={selectedContent?.metadata.source}
-                  size="small"
-                  sx={{ mr: 1 }}
-                />
-                <Chip
-                  label={`${selectedContent?.content.length} chunks`}
-                  size="small"
-                  color="primary"
-                />
-              </Box>
-            </Box>
-          </DialogTitle>
-          <DialogContent dividers>
-            {loadingContent ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-                <CircularProgress />
-              </Box>
-            ) : (
-              selectedContent && (
-                <Box sx={{ mt: 2 }}>
-                  {selectedContent.content.map((chunk, index) => (
-                    <Paper 
-                      key={index} 
-                      elevation={1}
-                      sx={{ 
-                        p: 3, 
-                        mb: 2, 
-                        backgroundColor: 'grey.50',
-                        '&:hover': {
-                          backgroundColor: 'grey.100',
-                        },
-                        position: 'relative'
-                      }}
-                    >
-                      <Typography 
-                        variant="caption" 
-                        sx={{ 
-                          position: 'absolute',
-                          top: 8,
-                          right: 8,
-                          bgcolor: 'primary.main',
-                          color: 'white',
-                          px: 1,
-                          py: 0.5,
-                          borderRadius: 1,
-                        }}
-                      >
-                        Chunk {index + 1}
-                      </Typography>
-                      <Typography 
-                        variant="body1" 
-                        sx={{ 
-                          whiteSpace: 'pre-wrap',
-                          fontFamily: 'system-ui',
-                          lineHeight: 1.8,
-                          textAlign: 'justify',
-                          mt: 2
-                        }}
-                      >
-                        {chunk}
-                      </Typography>
-                    </Paper>
-                  ))}
+            {/* Right pane for content display */}
+            {selectedContent && (
+              <Grid item xs={12} md={6} lg={7}>
+                <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', minHeight: '48px' }}>
+                  <Button 
+                    variant="outlined"
+                    color="error"
+                    onClick={() => setSelectedContent(null)}
+                    startIcon={<CloseIcon />}
+                    sx={{ mt: 1 }}
+                  >
+                    Close Content View
+                  </Button>
                 </Box>
-              )
+                <Card sx={{ height: 'calc(100vh - 270px)', overflow: 'auto' }}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                      <Typography variant="h6">
+                        Content View
+                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        <Chip
+                          icon={selectedContent?.metadata.type === 'website' ? <WebIcon /> : <FileIcon />}
+                          label={selectedContent?.metadata.source}
+                          size="small"
+                          sx={{ mr: 1 }}
+                        />
+                        <Chip
+                          label={`${selectedContent?.content.length} chunks`}
+                          size="small"
+                          color="primary"
+                        />
+                        <IconButton 
+                          size="small" 
+                          onClick={() => setSelectedContent(null)}
+                          sx={{ ml: 1 }}
+                          color="error"
+                          title="Close content view"
+                        >
+                          <CloseIcon />
+                        </IconButton>
+                      </Box>
+                    </Box>
+                    
+                    {loadingContent ? (
+                      <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                        <CircularProgress />
+                      </Box>
+                    ) : (
+                      selectedContent && (
+                        <Box>
+                          {selectedContent.content.map((chunk, index) => (
+                            <Paper 
+                              key={index} 
+                              elevation={1}
+                              sx={{ 
+                                p: 3, 
+                                mb: 2, 
+                                backgroundColor: 'grey.50',
+                                '&:hover': {
+                                  backgroundColor: 'grey.100',
+                                },
+                                position: 'relative'
+                              }}
+                            >
+                              <Typography 
+                                variant="caption" 
+                                sx={{ 
+                                  position: 'absolute',
+                                  top: 8,
+                                  right: 8,
+                                  bgcolor: 'primary.main',
+                                  color: 'white',
+                                  px: 1,
+                                  py: 0.5,
+                                  borderRadius: 1,
+                                }}
+                              >
+                                Chunk {index + 1}
+                              </Typography>
+                              <Typography 
+                                variant="body1" 
+                                sx={{ 
+                                  whiteSpace: 'pre-wrap',
+                                  fontFamily: 'system-ui',
+                                  lineHeight: 1.8,
+                                  textAlign: 'justify',
+                                  mt: 2
+                                }}
+                              >
+                                {chunk}
+                              </Typography>
+                            </Paper>
+                          ))}
+                        </Box>
+                      )
+                    )}
+                  </CardContent>
+                </Card>
+              </Grid>
             )}
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setContentDialogOpen(false)}>Close</Button>
-          </DialogActions>
-        </Dialog>
+          </Grid>
+        </Grid>
 
+        {/* Delete confirmation dialog */}
         <Dialog
           open={deleteDialogOpen}
           onClose={() => !isDeleting && setDeleteDialogOpen(false)}
@@ -802,6 +1047,6 @@ function KnowledgeBase() {
       </Grid>
     </Box>
   );
-}
+};
 
 export default KnowledgeBase; 

@@ -39,10 +39,36 @@ router.post('/', authenticateToken, async (req, res) => {
 // Get all agents for user
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const agents = await Agent.find({ user: req.user._id });
-    res.json(agents);
+    console.log('GET /agents - Request received');
+    
+    // Fetch real agents directly - no dev mode check
+    console.log('Fetching agents for user:', req.user._id);
+    const fields = req.query.fields ? req.query.fields.split(',') : null;
+    let query = { user: req.user._id }; // Fixed from userId to user to match schema
+    
+    if (req.query.active) {
+      query.active = req.query.active === 'true';
+    }
+    
+    let projection = {};
+    if (fields) {
+      fields.forEach(field => {
+        projection[field] = 1;
+      });
+    }
+    
+    const agents = await Agent.find(query, projection).sort({ createdAt: -1 });
+    console.log(`Found ${agents.length} agents for user`);
+    
+    // Return the agents (empty array if none found)
+    return res.json(agents);
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching agents', error: error.message });
+    console.error('Error fetching agents:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching agents',
+      error: error.message
+    });
   }
 });
 

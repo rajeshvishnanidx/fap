@@ -1,251 +1,588 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
-  TextField,
-  Button,
   Typography,
   IconButton,
-  Slide,
+  TextField,
   Paper,
   Avatar,
+  Fab,
+  Chip,
+  Tooltip
 } from '@mui/material';
 import {
   Close as CloseIcon,
-  Chat as ChatIcon,
+  Send as SendIcon,
+  Minimize as MinimizeIcon,
+  Fullscreen as FullscreenIcon,
+  MoreVert as MoreIcon
 } from '@mui/icons-material';
-import axios from 'axios';
+import { useTheme } from '@mui/material/styles';
 
-const ChatPreview = ({ agent, onClose }) => {
-  const [isOpen, setIsOpen] = useState(false);
+const ChatPreview = ({ agent, onClose, embedded = false, initiallyOpen = false, forceUpdate = null }) => {
+  const theme = useTheme();
+  const [isOpen, setIsOpen] = useState(initiallyOpen);
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([]);
-  const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
+  
+  // Log agent appearance data to debug color and icon issues
   useEffect(() => {
-    scrollToBottom();
+    if (agent) {
+      console.log('ChatPreview received agent:', {
+        id: agent._id,
+        name: agent.name,
+        appearance: agent.appearance,
+        primaryColor: agent.appearance?.primaryColor,
+        hasIcon: agent.appearance?.icon ? 'Yes' : 'No',
+        iconPreview: agent.appearance?.icon?.substring(0, 30) + '...' || 'None'
+      });
+    }
+  }, [agent]);
+  
+  // Set the primary color with a fallback
+  const primaryColor = agent?.appearance?.primaryColor || '#2E7D32';
+  const agentName = agent?.name || 'AI Assistant';
+  
+  // Force re-render when props change
+  useEffect(() => {
+    console.log("ChatPreview received forceUpdate:", forceUpdate);
+    // Reset messages when agent or forceUpdate changes to apply new settings
+    setMessages([]);
+    
+    // Initialize with open state if specified
+    if (initiallyOpen !== undefined) {
+      setIsOpen(initiallyOpen);
+    }
+  }, [forceUpdate, agent?._id, initiallyOpen]);
+  
+  useEffect(() => {
+    if (agent && isOpen && messages.length === 0) {
+      // Get the actual greeting from the agent data
+      const greeting = agent.behavior?.greeting || `Hello! I'm ${agentName}. How can I help you today?`;
+      console.log("Using greeting message:", greeting);
+      
+      // Add an initial greeting message from the agent
+      setTimeout(() => {
+        setMessages([
+          {
+            sender: 'agent',
+            text: greeting,
+            timestamp: new Date()
+          }
+        ]);
+      }, 500);
+    }
+  }, [agent, isOpen, messages.length, agentName]);
+  
+  useEffect(() => {
+    // Scroll to bottom when messages change
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
-
-  // Add initial greeting when chat is opened
-  useEffect(() => {
-    if (isOpen && agent && messages.length === 0) {
+  
+  const handleSendMessage = () => {
+    if (message.trim() === '') return;
+    
+    // Add user message
+    const newMessages = [
+      ...messages,
+      {
+        sender: 'user',
+        text: message,
+        timestamp: new Date()
+      }
+    ];
+    setMessages(newMessages);
+    setMessage('');
+    
+    // Simulate agent response
+    setTimeout(() => {
+      // Create a dynamic response that mentions the agent's settings
+      let demoResponse = `I'm a preview of the ${agentName} agent.`;
+      if (agent?.behavior?.tone || agent?.behavior?.style) {
+        demoResponse += ` My tone is set to "${agent?.behavior?.tone || 'Professional'}" and my style is "${agent?.behavior?.style || 'Helpful and Informative'}".`;
+      }
+      
+      demoResponse += " Your actual agent responses will be generated based on your system prompt and guidelines.";
+      
       setMessages([
+        ...newMessages,
         {
-          role: 'assistant',
-          content: agent.behavior?.greeting || 'Hello! How can I help you today?'
+          sender: 'agent',
+          text: demoResponse,
+          timestamp: new Date()
         }
       ]);
-    }
-  }, [isOpen, agent]);
-
-  const handleSendMessage = async () => {
-    if (!message.trim()) return;
-
-    const newMessage = { role: 'user', content: message };
-    setMessages(prev => [...prev, newMessage]);
-    setMessage('');
-    setLoading(true);
-
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        `${process.env.REACT_APP_API_URL}/chat/${agent._id}`,
-        {
-          messages: [...messages, newMessage],
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-
-      setMessages(prev => [...prev, response.data.message]);
-
-      // Show sources if available
-      if (response.data.context && response.data.context.length > 0) {
-        const sourcesMessage = {
-          role: 'system',
-          content: 'Sources used:\n' + response.data.context
-            .map(ctx => `- ${ctx.source} (relevance: ${Math.round(ctx.score * 100)}%)`)
-            .join('\n'),
-        };
-        setMessages(prev => [...prev, sourcesMessage]);
-      }
-    } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Error sending message';
-      setMessages(prev => [...prev, { 
-        role: 'system', 
-        content: `⚠️ Error: ${errorMessage}` 
-      }]);
-    }
-
-    setLoading(false);
+    }, 1000);
   };
-
+  
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
     }
   };
-
-  const handleClose = () => {
-    setIsOpen(false);
-    setTimeout(() => {
-      setMessages([]);
-      onClose();
-    }, 300); // Wait for animation to complete
+  
+  const toggleChat = () => {
+    setIsOpen(!isOpen);
   };
-
-  // Get the primary color from agent's appearance settings or use default
-  const primaryColor = agent?.appearance?.primaryColor || '#1976d2';
-
-  return (
-    <Box sx={{ position: 'fixed', bottom: 20, right: 20, zIndex: 1200 }}>
-      {/* Chat Window */}
-      <Slide direction="up" in={isOpen} mountOnEnter unmountOnExit>
-        <Paper
-          elevation={6}
+  
+  const getTimeString = (date) => {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+  
+  // Format for embedded (inside parent container) or floating mode
+  if (embedded) {
+    return (
+      <Box
+        sx={{
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          borderRadius: embedded ? 0 : 2,
+          overflow: 'hidden',
+          backgroundColor: theme.palette.background.paper,
+          border: '1px solid',
+          borderColor: 'divider',
+        }}
+      >
+        <Box
           sx={{
-            position: 'absolute',
-            bottom: 80,
-            right: 0,
-            width: 360,
-            height: 560,
-            borderRadius: 2,
-            overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          {/* Header */}
-          <Box sx={{
-            p: 2,
-            bgcolor: primaryColor,
-            color: 'white',
+            p: 1.5,
+            backgroundColor: primaryColor,
+            color: '#fff',
             display: 'flex',
             alignItems: 'center',
-            gap: 2
-          }}>
-            <Avatar 
-              src={agent?.appearance?.icon} 
-              alt={agent?.name}
-              sx={{ width: 40, height: 40 }}
+            justifyContent: 'space-between',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Avatar
+              src={agent?.appearance?.icon || null}
+              sx={{
+                width: 36,
+                height: 36,
+                mr: 1.5,
+                bgcolor: theme.palette.common.white,
+                color: primaryColor,
+                fontWeight: 'bold',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+              }}
             >
-              {agent?.name?.charAt(0)}
+              {!agent?.appearance?.icon && agentName.charAt(0)}
             </Avatar>
-            <Typography variant="h6" sx={{ flex: 1 }}>
-              {agent?.name}
-            </Typography>
-            <IconButton
-              size="small"
-              onClick={handleClose}
-              sx={{ color: 'white' }}
-            >
-              <CloseIcon />
-            </IconButton>
+            <Box>
+              <Typography variant="subtitle1" sx={{ fontSize: '1rem', fontWeight: 600, lineHeight: 1.2 }}>
+                {agentName}
+              </Typography>
+              <Typography variant="caption" sx={{ opacity: 0.9, display: 'block', lineHeight: 1 }}>
+                {agent?.description || 'AI Assistant'}
+              </Typography>
+            </Box>
           </Box>
-
-          {/* Messages */}
-          <Box sx={{
-            flex: 1,
-            overflow: 'auto',
+          <Box>
+            <Tooltip title="Options">
+              <IconButton size="small" sx={{ color: 'white' }}>
+                <MoreIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        </Box>
+        
+        <Box
+          sx={{
             p: 2,
-            bgcolor: 'grey.50',
-          }}>
+            flex: 1,
+            overflowY: 'auto',
+            backgroundColor: theme.palette.grey[50],
+            backgroundImage: 'linear-gradient(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.7)), url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' viewBox=\'0 0 20 20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'%23f3f3f3\' fill-opacity=\'1\'%3E%3Cpolygon points=\'0,0 2,0 2,2 0,2\'/%3E%3C/g%3E%3C/svg%3E")',
+          }}
+        >
+          {messages.map((msg, index) => (
+            <Box
+              key={index}
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: msg.sender === 'user' ? 'flex-end' : 'flex-start',
+                mb: 2,
+              }}
+            >
+              <Box
+                sx={{
+                  maxWidth: '80%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                {msg.sender === 'agent' && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5, ml: 0.5 }}>
+                    <Avatar
+                      src={agent?.appearance?.icon || null}
+                      sx={{
+                        width: 20,
+                        height: 20,
+                        mr: 0.5,
+                        bgcolor: primaryColor,
+                        fontSize: '0.75rem',
+                      }}
+                    >
+                      {!agent?.appearance?.icon && agentName.charAt(0)}
+                    </Avatar>
+                    <Typography variant="caption" color="text.secondary">
+                      {agentName}
+                    </Typography>
+                  </Box>
+                )}
+                <Paper
+                  elevation={0}
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 2,
+                    backgroundColor: msg.sender === 'user' 
+                      ? theme.palette.primary.main
+                      : msg.sender === 'system' 
+                        ? theme.palette.grey[200] 
+                        : primaryColor,
+                    color: msg.sender === 'system' 
+                      ? theme.palette.text.secondary 
+                      : '#fff',
+                    position: 'relative',
+                    ...(msg.sender === 'user' && {
+                      borderTopRightRadius: 0,
+                    }),
+                    ...(msg.sender === 'agent' && {
+                      borderTopLeftRadius: 0,
+                    }),
+                  }}
+                >
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {msg.text}
+                  </Typography>
+                </Paper>
+                <Typography 
+                  variant="caption" 
+                  color="text.secondary" 
+                  sx={{ 
+                    alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
+                    mt: 0.5,
+                    mx: 0.5,
+                    fontSize: '0.7rem'
+                  }}
+                >
+                  {getTimeString(msg.timestamp)}
+                </Typography>
+              </Box>
+            </Box>
+          ))}
+          <div ref={messagesEndRef} />
+        </Box>
+        
+        <Box
+          sx={{
+            p: 2,
+            borderTop: '1px solid',
+            borderColor: 'divider',
+            backgroundColor: theme.palette.background.paper,
+            display: 'flex',
+            alignItems: 'flex-end',
+          }}
+        >
+          <TextField
+            fullWidth
+            variant="outlined"
+            placeholder="Type a message..."
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyPress={handleKeyPress}
+            multiline
+            maxRows={4}
+            size="small"
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 2.5,
+                backgroundColor: theme.palette.background.default,
+                '& fieldset': {
+                  borderColor: 'divider',
+                },
+              },
+            }}
+          />
+          <IconButton
+            color="primary"
+            onClick={handleSendMessage}
+            disabled={!message.trim()}
+            sx={{ 
+              ml: 1, 
+              bgcolor: primaryColor, 
+              color: '#fff', 
+              '&:hover': { 
+                bgcolor: primaryColor, 
+                opacity: 0.8 
+              },
+              width: 40,
+              height: 40
+            }}
+          >
+            <SendIcon />
+          </IconButton>
+        </Box>
+      </Box>
+    );
+  }
+  
+  // Floating chat bubble mode
+  return (
+    <>
+      {isOpen ? (
+        <Paper
+          elevation={3}
+          sx={{
+            position: 'fixed',
+            bottom: 20,
+            right: 20,
+            width: 350,
+            height: 500,
+            display: 'flex',
+            flexDirection: 'column',
+            borderRadius: 2,
+            overflow: 'hidden',
+            zIndex: 1000,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+          }}
+        >
+          <Box
+            sx={{
+              p: 1.5,
+              backgroundColor: primaryColor,
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <Avatar
+                src={agent?.appearance?.icon || null}
+                sx={{
+                  width: 36,
+                  height: 36,
+                  mr: 1.5,
+                  bgcolor: theme.palette.common.white,
+                  color: primaryColor,
+                  fontWeight: 'bold',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                }}
+              >
+                {!agent?.appearance?.icon && agentName.charAt(0)}
+              </Avatar>
+              <Box>
+                <Typography variant="subtitle1" sx={{ fontSize: '1rem', fontWeight: 600, lineHeight: 1.2 }}>
+                  {agentName}
+                </Typography>
+                <Typography variant="caption" sx={{ opacity: 0.9, display: 'block', lineHeight: 1 }}>
+                  {agent?.description || 'AI Assistant'}
+                </Typography>
+              </Box>
+            </Box>
+            <Box>
+              <IconButton
+                size="small"
+                color="inherit"
+                onClick={toggleChat}
+                sx={{ mr: 0.5 }}
+              >
+                <MinimizeIcon fontSize="small" />
+              </IconButton>
+              <IconButton
+                size="small"
+                color="inherit"
+                onClick={onClose}
+              >
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          </Box>
+          
+          <Box
+            sx={{
+              p: 2,
+              flex: 1,
+              overflowY: 'auto',
+              backgroundColor: theme.palette.grey[50],
+              backgroundImage: 'linear-gradient(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.7)), url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' viewBox=\'0 0 20 20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'%23f3f3f3\' fill-opacity=\'1\'%3E%3Cpolygon points=\'0,0 2,0 2,2 0,2\'/%3E%3C/g%3E%3C/svg%3E")',
+            }}
+          >
             {messages.map((msg, index) => (
               <Box
                 key={index}
                 sx={{
                   display: 'flex',
-                  justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                  mb: 1,
+                  flexDirection: 'column',
+                  alignItems: msg.sender === 'user' ? 'flex-end' : 'flex-start',
+                  mb: 2,
                 }}
               >
-                {msg.role !== 'user' && msg.role !== 'system' && (
-                  <Avatar 
-                    src={agent?.appearance?.icon}
-                    alt={agent?.name}
-                    sx={{ width: 32, height: 32, mr: 1 }}
-                  >
-                    {agent?.name?.charAt(0)}
-                  </Avatar>
-                )}
                 <Box
                   sx={{
-                    maxWidth: '70%',
-                    p: 2,
-                    borderRadius: 2,
-                    bgcolor: msg.role === 'user' ? primaryColor : 'white',
-                    color: msg.role === 'user' ? 'white' : 'text.primary',
-                    boxShadow: 1,
-                    ...(msg.role === 'system' && {
-                      bgcolor: 'grey.100',
-                      fontSize: '0.875rem',
-                      fontStyle: 'italic',
-                    }),
+                    maxWidth: '80%',
+                    display: 'flex',
+                    flexDirection: 'column',
                   }}
                 >
-                  <Typography sx={{ whiteSpace: 'pre-wrap' }}>
-                    {msg.content}
+                  {msg.sender === 'agent' && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5, ml: 0.5 }}>
+                      <Avatar
+                        src={agent?.appearance?.icon || null}
+                        sx={{
+                          width: 20,
+                          height: 20,
+                          mr: 0.5,
+                          bgcolor: primaryColor,
+                          fontSize: '0.75rem',
+                        }}
+                      >
+                        {!agent?.appearance?.icon && agentName.charAt(0)}
+                      </Avatar>
+                      <Typography variant="caption" color="text.secondary">
+                        {agentName}
+                      </Typography>
+                    </Box>
+                  )}
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 1.5,
+                      borderRadius: 2,
+                      backgroundColor: msg.sender === 'user' 
+                        ? theme.palette.primary.main
+                        : msg.sender === 'system' 
+                          ? theme.palette.grey[200] 
+                          : primaryColor,
+                      color: msg.sender === 'system' 
+                        ? theme.palette.text.secondary 
+                        : '#fff',
+                      position: 'relative',
+                      ...(msg.sender === 'user' && {
+                        borderTopRightRadius: 0,
+                      }),
+                      ...(msg.sender === 'agent' && {
+                        borderTopLeftRadius: 0,
+                      }),
+                    }}
+                  >
+                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                      {msg.text}
+                    </Typography>
+                  </Paper>
+                  <Typography 
+                    variant="caption" 
+                    color="text.secondary" 
+                    sx={{ 
+                      alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
+                      mt: 0.5,
+                      mx: 0.5,
+                      fontSize: '0.7rem'
+                    }}
+                  >
+                    {getTimeString(msg.timestamp)}
                   </Typography>
                 </Box>
               </Box>
             ))}
             <div ref={messagesEndRef} />
           </Box>
-
-          {/* Input */}
-          <Box sx={{ p: 2, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider' }}>
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <TextField
-                fullWidth
-                multiline
-                maxRows={4}
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="Type your message..."
-                disabled={loading}
-                size="small"
-                sx={{ bgcolor: 'white' }}
-              />
-              <Button
-                variant="contained"
-                onClick={handleSendMessage}
-                disabled={!message.trim() || loading}
-                sx={{ bgcolor: primaryColor }}
-              >
-                {loading ? '...' : 'Send'}
-              </Button>
-            </Box>
+          
+          <Box
+            sx={{
+              p: 2,
+              borderTop: '1px solid',
+              borderColor: 'divider',
+              backgroundColor: theme.palette.background.paper,
+              display: 'flex',
+              alignItems: 'flex-end',
+            }}
+          >
+            <TextField
+              fullWidth
+              variant="outlined"
+              placeholder="Type a message..."
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyPress={handleKeyPress}
+              multiline
+              maxRows={4}
+              size="small"
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 2.5,
+                  backgroundColor: theme.palette.background.default,
+                  '& fieldset': {
+                    borderColor: 'divider',
+                  },
+                },
+              }}
+            />
+            <IconButton
+              color="primary"
+              onClick={handleSendMessage}
+              disabled={!message.trim()}
+              sx={{ 
+                ml: 1, 
+                bgcolor: primaryColor, 
+                color: '#fff', 
+                '&:hover': { 
+                  bgcolor: primaryColor, 
+                  opacity: 0.8 
+                },
+                width: 40,
+                height: 40
+              }}
+            >
+              <SendIcon />
+            </IconButton>
           </Box>
         </Paper>
-      </Slide>
-
-      {/* Chat Bubble Button */}
-      <IconButton
-        onClick={() => setIsOpen(!isOpen)}
-        sx={{
-          width: 60,
-          height: 60,
-          bgcolor: primaryColor,
-          color: 'white',
-          boxShadow: 2,
-          '&:hover': {
+      ) : (
+        <Fab
+          aria-label="chat"
+          onClick={toggleChat}
+          sx={{
+            position: 'fixed',
+            bottom: 20,
+            right: 20,
             bgcolor: primaryColor,
-            filter: 'brightness(0.9)',
-          },
-          transition: 'transform 0.2s',
-          transform: isOpen ? 'scale(0.9)' : 'scale(1)',
-        }}
-      >
-        {isOpen ? <CloseIcon /> : <ChatIcon />}
-      </IconButton>
-    </Box>
+            color: '#fff',
+            '&:hover': {
+              bgcolor: primaryColor,
+              opacity: 0.9,
+            },
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            zIndex: 1000,
+            width: 60,
+            height: 60,
+          }}
+        >
+          <Avatar
+            src={agent?.appearance?.icon || null}
+            sx={{
+              width: 60,
+              height: 60,
+              bgcolor: primaryColor,
+              color: '#fff',
+              fontWeight: 'bold',
+              fontSize: '1.5rem'
+            }}
+          >
+            {!agent?.appearance?.icon && agentName.charAt(0)}
+          </Avatar>
+        </Fab>
+      )}
+    </>
   );
 };
 

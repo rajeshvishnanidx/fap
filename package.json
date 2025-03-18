@@ -11,6 +11,7 @@
   "description": "",
   "dependencies": {
     "express-rate-limit": "^7.5.0",
+    "react-quill": "^2.0.0",
     "recharts": "^2.15.1"
   }
 }

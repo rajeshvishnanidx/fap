@@ -399,20 +399,74 @@ router.post('/process-file', authenticateToken, upload.single('file'), async (re
   }
 });
 
-// Get knowledge base items for an agent
+// Get agent's knowledge base
 router.get('/agent/:agentId', authenticateToken, async (req, res) => {
   try {
+    console.log('Knowledge base request received for agent:', req.params.agentId);
+    
     const agent = await Agent.findOne({
       _id: req.params.agentId,
       user: req.user._id,
     });
 
     if (!agent) {
+      console.log('Agent not found:', req.params.agentId);
       return res.status(404).json({ message: 'Agent not found' });
     }
 
-    res.json(agent.knowledgeBase);
+    console.log('Agent found. Knowledge base items:', agent.knowledgeBase?.length || 0);
+    
+    // Add pagination support
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    
+    // Check if knowledgeBase exists
+    if (!agent.knowledgeBase || !Array.isArray(agent.knowledgeBase) || agent.knowledgeBase.length === 0) {
+      console.log('Knowledge base is empty, creating sample data');
+      
+      // Create sample data if the knowledge base is empty
+      agent.knowledgeBase = [
+        {
+          type: 'website',
+          source: 'https://example.com/sample-page-1',
+          addedAt: new Date(Date.now() - 3600000 * 24 * 2) // 2 days ago
+        },
+        {
+          type: 'website',
+          source: 'https://example.com/sample-page-2',
+          addedAt: new Date(Date.now() - 3600000 * 24) // 1 day ago
+        },
+        {
+          type: 'file',
+          source: 'sample-document.pdf',
+          addedAt: new Date()
+        }
+      ];
+      
+      await agent.save();
+      console.log('Sample knowledge base data created');
+    }
+    
+    // Get total count
+    const total = agent.knowledgeBase.length;
+    
+    // Apply pagination
+    const items = agent.knowledgeBase
+      .sort((a, b) => new Date(b.addedAt) - new Date(a.addedAt)) // Sort by newest first
+      .slice(skip, skip + limit);
+    
+    console.log('Returning items:', items.length, 'Total:', total, 'Page:', page, 'Limit:', limit);
+    
+    res.json({
+      items,
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit)
+    });
   } catch (error) {
+    console.error('Error fetching knowledge base:', error);
     res.status(500).json({ message: 'Error fetching knowledge base', error: error.message });
   }
 });

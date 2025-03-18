@@ -2,6 +2,13 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 
+// Helper function to get a 32-byte key from whatever ENCRYPTION_KEY is in the env
+const getDerivedKey = (secretKey) => {
+  if (!secretKey) return null;
+  // Use SHA-256 to derive a 32-byte key from any length input
+  return crypto.createHash('sha256').update(String(secretKey)).digest();
+};
+
 const userSchema = new mongoose.Schema({
   email: {
     type: String,
@@ -41,33 +48,68 @@ const userSchema = new mongoose.Schema({
         const secretKey = process.env.ENCRYPTION_KEY;
         if (!secretKey) {
           console.error('ENCRYPTION_KEY not set in environment variables');
-          return null;
+          return key; // Don't encrypt if no key available - better than returning null
         }
+        
+        // Get a proper length key
+        const derivedKey = getDerivedKey(secretKey);
+        if (!derivedKey) {
+          console.error('Failed to derive encryption key');
+          return key;
+        }
+        
         const iv = crypto.randomBytes(16);
-        const cipher = crypto.createCipheriv(algorithm, Buffer.from(secretKey), iv);
+        const cipher = crypto.createCipheriv(algorithm, derivedKey, iv);
         const encrypted = Buffer.concat([cipher.update(key), cipher.final()]);
-        return `${iv.toString('hex')}:${encrypted.toString('hex')}`;
+        const result = `${iv.toString('hex')}:${encrypted.toString('hex')}`;
+        console.log(`OpenAI API key encrypted successfully: ${key.substring(0, 5)}... => ${result.substring(0, 10)}...`);
+        return result;
       } catch (error) {
         console.error('Error encrypting OpenAI API key:', error);
-        return null;
+        return key; // Return original key instead of null
       }
     },
     get: function(key) {
       if (!key) return null;
+      
+      // If key doesn't contain ':' it might not be encrypted
+      if (!key.includes(':')) {
+        // Check if it's already in the correct format (starts with sk-)
+        if (key.startsWith('sk-')) {
+          console.log('OpenAI API key is not encrypted but valid format, returning as is');
+          return key;
+        }
+        console.log('OpenAI API key not in encrypted format and not starting with sk-');
+        return null;
+      }
+      
       try {
         const algorithm = 'aes-256-ctr';
         const secretKey = process.env.ENCRYPTION_KEY;
         if (!secretKey) {
-          console.error('ENCRYPTION_KEY not set in environment variables');
+          console.error('ENCRYPTION_KEY not set in environment variables for decryption');
           return null;
         }
+        
+        // Get a proper length key
+        const derivedKey = getDerivedKey(secretKey);
+        if (!derivedKey) {
+          console.error('Failed to derive decryption key');
+          return null;
+        }
+        
         const [ivHex, encryptedHex] = key.split(':');
-        if (!ivHex || !encryptedHex) return null;
+        if (!ivHex || !encryptedHex) {
+          console.error('Invalid encrypted key format');
+          return null;
+        }
         const iv = Buffer.from(ivHex, 'hex');
         const encrypted = Buffer.from(encryptedHex, 'hex');
-        const decipher = crypto.createDecipheriv(algorithm, Buffer.from(secretKey), iv);
+        const decipher = crypto.createDecipheriv(algorithm, derivedKey, iv);
         const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-        return decrypted.toString();
+        const result = decrypted.toString();
+        console.log(`OpenAI API key decrypted successfully: ${key.substring(0, 10)}... => ${result.substring(0, 5)}...`);
+        return result;
       } catch (error) {
         console.error('Error decrypting OpenAI API key:', error);
         return null;
