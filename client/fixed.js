@@ -163,7 +163,7 @@ function FaqManager() {
   // Helper function to construct API URLs correctly
   const getApiUrl = (endpoint) => {
     // For direct testing, use localhost directly
-    return `http://localhost:5000/api/${endpoint}`;
+    return `${process.env.REACT_APP_API_URL}/${endpoint}`;
   };
 
   // Update the fetchAgents function to use real data
@@ -181,7 +181,7 @@ function FaqManager() {
       }
 
       // Get agents from API
-      const response = await axios.get('http://localhost:5000/api/agents?fields=name,_id', {
+      const response = await axios.get(process.env.REACT_APP_API_URL + '/agents?fields=name,_id', {
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -256,7 +256,7 @@ function FaqManager() {
         queryParams += `&category=${encodeURIComponent(selectedCategory)}`;
       }
 
-      const response = await axios.get(`http://localhost:5000/api/faqs${queryParams}`, {
+      const response = await axios.get(`${process.env.REACT_APP_API_URL}/faqs${queryParams}`, {
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -1401,7 +1401,7 @@ function FaqManager() {
                           
                           console.log('Using token from localStorage:', token ? 'Token exists' : 'No token');
                           
-                          fetch(`http://localhost:5000/api/faqs/agent/${agent}?page=1&limit=10`, {
+                          fetch(`${process.env.REACT_APP_API_URL}/faqs/agent/${agent}?page=1&limit=10`, {
                             headers: {
                               'Authorization': `Bearer ${token}`,
                               'Accept': 'application/json'

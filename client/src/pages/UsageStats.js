@@ -83,7 +83,7 @@ function UsageStats() {
         return;
       }
 
-      const response = await axios.get('http://localhost:5000/api/agents?fields=name,_id', {
+      const response = await axios.get(`${process.env.REACT_APP_API_URL}/agents?fields=name,_id`, {
         headers: {
           Authorization: `Bearer ${token}`
         },

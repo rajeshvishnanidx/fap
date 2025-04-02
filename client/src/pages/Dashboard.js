@@ -94,7 +94,7 @@ function Dashboard() {
           console.log('Fetching dashboard stats with token:', token ? 'Token exists' : 'No token');
           
           // Use explicit URL instead of environment variable
-          const response = await axios.get('http://localhost:5000/api/dashboard/stats', {
+          const response = await axios.get(`${process.env.REACT_APP_API_URL}/dashboard/stats`, {
             headers: {
               Authorization: `Bearer ${token}`,
               'Content-Type': 'application/json',

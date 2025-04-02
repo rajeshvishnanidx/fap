@@ -63,7 +63,7 @@ function Agents() {
       
       // Try without query parameters to see full response
       const response = await axios.get(
-        'http://localhost:5000/api/agents',
+        `${process.env.REACT_APP_API_URL}/agents`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -137,7 +137,7 @@ function Agents() {
       if (!token) return;
       
       const response = await axios.get(
-        'http://localhost:5000/api/dashboard/stats',
+        `${process.env.REACT_APP_API_URL}/dashboard/stats`,
         {
           headers: {
             Authorization: `Bearer ${token}`,

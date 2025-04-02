@@ -159,7 +159,7 @@ function FaqManager() {
         return;
       }
 
-      const response = await axios.get('http://localhost:5000/api/agents?fields=name,_id', {
+      const response = await axios.get(`${process.env.REACT_APP_API_URL}/agents?fields=name,_id`, {
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -235,9 +235,9 @@ function FaqManager() {
         queryParams += `&category=${encodeURIComponent(selectedCategory)}`;
       }
 
-      console.log(`Fetching FAQs with URL: http://localhost:5000/api/faqs/agent/${agentId}${queryParams}`);
+      console.log(`Fetching FAQs with URL: ${process.env.REACT_APP_API_URL}/faqs/agent/${agentId}${queryParams}`);
       
-      const response = await axios.get(`http://localhost:5000/api/faqs/agent/${agentId}${queryParams}`, {
+      const response = await axios.get(`${process.env.REACT_APP_API_URL}/faqs/agent/${agentId}${queryParams}`, {
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -303,7 +303,7 @@ function FaqManager() {
       const token = localStorage.getItem('token');
       
       const response = await axios.post(
-        `http://localhost:5000/api/faqs/job/${jobId}/cancel`,
+        `${process.env.REACT_APP_API_URL}/faqs/job/${jobId}/cancel`,
         {},
         {
           headers: { Authorization: `Bearer ${token}` }
@@ -376,7 +376,7 @@ function FaqManager() {
       const token = localStorage.getItem('token');
       
       const response = await axios.post(
-        `http://localhost:5000/api/faqs`,
+        `${process.env.REACT_APP_API_URL}/faqs`,
         {
           agent: selectedAgent,
           question: newQuestion,
@@ -409,7 +409,7 @@ function FaqManager() {
       const token = localStorage.getItem('token');
       
       const response = await axios.put(
-        `http://localhost:5000/api/faqs/settings/${selectedAgent}`,
+        `${process.env.REACT_APP_API_URL}/faqs/settings/${selectedAgent}`,
         {
           exactMatchEnabled,
           matchThreshold
@@ -441,7 +441,7 @@ function FaqManager() {
       const token = localStorage.getItem('token');
       
       const response = await axios.post(
-        `http://localhost:5000/api/faqs/category`,
+        `${process.env.REACT_APP_API_URL}/faqs/category`,
         {
           agent: selectedAgent,
           category: newCategory
@@ -479,7 +479,7 @@ function FaqManager() {
       const token = localStorage.getItem('token');
       
       const response = await axios.delete(
-        `http://localhost:5000/api/faqs/category/${selectedAgent}/${encodeURIComponent(categoryToDelete)}`,
+        `${process.env.REACT_APP_API_URL}/faqs/category/${selectedAgent}/${encodeURIComponent(categoryToDelete)}`,
         {
           headers: { Authorization: `Bearer ${token}` }
         }
@@ -521,7 +521,7 @@ function FaqManager() {
       const token = localStorage.getItem('token');
       
       const response = await axios.delete(
-        `http://localhost:5000/api/faqs/${editingFaq._id}`,
+        `${process.env.REACT_APP_API_URL}/faqs/${editingFaq._id}`,
         {
           headers: { Authorization: `Bearer ${token}` }
         }
@@ -550,7 +550,7 @@ function FaqManager() {
       const token = localStorage.getItem('token');
       
       const response = await axios.delete(
-        `http://localhost:5000/api/faqs/agent/${selectedAgent}`,
+        `${process.env.REACT_APP_API_URL}/faqs/agent/${selectedAgent}`,
         {
           headers: { Authorization: `Bearer ${token}` }
         }
@@ -623,7 +623,7 @@ function FaqManager() {
       }
       
       const response = await axios.post(
-        `http://localhost:5000/api/faqs/bulk`,
+        `${process.env.REACT_APP_API_URL}/faqs/bulk`,
         {
           agent: selectedAgent,
           faqs: importData
@@ -657,7 +657,7 @@ function FaqManager() {
       const token = localStorage.getItem('token');
       
       const response = await axios.post(
-        `http://localhost:5000/api/faqs/generate/${selectedAgent}`,
+        `${process.env.REACT_APP_API_URL}/faqs/generate/${selectedAgent}`,
         {
           // Add any generation parameters here
           groupSimilarQuestions: true
@@ -674,7 +674,7 @@ function FaqManager() {
       const interval = setInterval(async () => {
         try {
           const statusResponse = await axios.get(
-            `http://localhost:5000/api/faqs/job/${response.data.jobId}`,
+            `${process.env.REACT_APP_API_URL}/faqs/job/${response.data.jobId}`,
             {
               headers: { Authorization: `Bearer ${token}` }
             }
